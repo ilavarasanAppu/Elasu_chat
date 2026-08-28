@@ -132,6 +132,20 @@ async function runTests() {
     assert(typeof ollamaTest.success === 'boolean', 'Ollama test should return boolean result');
   });
 
+  // Test 8: AI Automation Webhook Trigger Endpoint
+  await test('AI Automation Webhook Trigger Endpoint', async () => {
+    const axios = require('axios');
+    const res = await axios.post('http://localhost:3000/api/webhook/trigger', {
+      contactId: 'contact_wife',
+      senderName: 'Maya',
+      text: 'When u coming home? 😤',
+      platform: 'whatsapp'
+    });
+    assert.strictEqual(res.data.success, true, 'Webhook should return success true');
+    assert(res.data.reply && res.data.reply.length > 0, 'Webhook should return auto-reply');
+    assert.strictEqual(res.data.mode, 'personal', 'Should identify personal mode');
+  });
+
   console.log(`\n========================================`);
   console.log(`🏁 Test Summary: ${passed} Passed, ${failed} Failed`);
   console.log(`========================================\n`);
