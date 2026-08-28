@@ -1,0 +1,333 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "GhostReply Auto-Response Engine API",
+    "description": "Context-Aware Dual-Mode AI Auto-Response Assistant with RAG, Persona Mirroring, and Multi-LLM provider support (Ollama, LM Studio, OpenAI, Gemini, OpenRouter, NVIDIA NIM). Designed for direct automation with AI agents, Zapier, n8n, Make, Flowise, and custom apps.",
+    "version": "1.0.0",
+    "contact": {
+      "name": "GhostReply Team",
+      "url": "https://github.com/ilavarasanAppu/GhostReply-DualMode-AI-AutoResponder"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000/api",
+      "description": "Local Development Server"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "System Health Check",
+        "description": "Returns status, version, and currently active LLM provider.",
+        "responses": {
+          "200": {
+            "description": "System is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string", "example": "ok" },
+                    "app": { "type": "string", "example": "GhostReply Dual-Mode Assistant" },
+                    "version": { "type": "string", "example": "1.0.0" },
+                    "active_provider": { "type": "string", "example": "ollama" },
+                    "timestamp": { "type": "string", "format": "date-time" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/webhook/trigger": {
+      "post": {
+        "summary": "AI Automation Webhook Trigger",
+        "description": "Main automation trigger for external tools (Zapier, n8n, Make, Twilio, WhatsApp). Receives incoming text, routes through Dual-Mode AI engine, and returns synthesized response and metadata.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookTriggerRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Automated Response Generated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookTriggerResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/chat/simulate": {
+      "post": {
+        "summary": "Simulate Inbound Message",
+        "description": "Processes an inbound message through GhostReply dual-mode pipeline.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["contactId", "text"],
+                "properties": {
+                  "contactId": { "type": "string", "example": "contact_wife" },
+                  "text": { "type": "string", "example": "When u coming home? 😤" },
+                  "senderName": { "type": "string", "example": "Maya" },
+                  "platform": { "type": "string", "example": "whatsapp" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Simulation completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatSimulateResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/contacts": {
+      "get": {
+        "summary": "List All Contacts",
+        "description": "Retrieve contact profiles with current mode, auto-reply status, and personality stats.",
+        "responses": {
+          "200": {
+            "description": "List of contacts"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create Contact",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateContactRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Contact created" }
+        }
+      }
+    },
+    "/contacts/{id}": {
+      "put": {
+        "summary": "Update Contact Mode / Settings",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "mode": { "type": "string", "enum": ["personal", "professional"] },
+                  "auto_reply": { "type": "integer", "enum": [0, 1] },
+                  "delay_mode": { "type": "string", "enum": ["immediate", "natural", "delayed"] },
+                  "delay_seconds": { "type": "integer" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Contact updated" }
+        }
+      }
+    },
+    "/knowledge": {
+      "get": {
+        "summary": "List RAG Knowledge Documents",
+        "responses": {
+          "200": { "description": "List of documents and chunk counts" }
+        }
+      },
+      "post": {
+        "summary": "Upload/Index Knowledge Document for RAG",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["title", "content"],
+                "properties": {
+                  "title": { "type": "string", "example": "Refund Policy 2026" },
+                  "category": { "type": "string", "example": "policies" },
+                  "content": { "type": "string", "example": "Full refund documentation..." }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Document chunked and indexed" }
+        }
+      }
+    },
+    "/rag/test-query": {
+      "post": {
+        "summary": "Test Semantic Knowledge Retrieval",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["query"],
+                "properties": {
+                  "query": { "type": "string", "example": "What is the return window?" },
+                  "topK": { "type": "integer", "default": 3 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Matching chunks and confidence scores" }
+        }
+      }
+    },
+    "/settings": {
+      "get": {
+        "summary": "Get System & LLM Settings",
+        "responses": {
+          "200": { "description": "Settings dictionary" }
+        }
+      },
+      "post": {
+        "summary": "Update LLM Provider or System Settings",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "active_provider": { "type": "string", "enum": ["ollama", "lmstudio", "openai", "gemini", "openrouter", "nvidia", "mock"] },
+                  "user_name": { "type": "string" },
+                  "ollama_endpoint": { "type": "string" },
+                  "ollama_model": { "type": "string" },
+                  "openai_api_key": { "type": "string" },
+                  "gemini_api_key": { "type": "string" },
+                  "openrouter_api_key": { "type": "string" },
+                  "nvidia_api_key": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Settings updated" }
+        }
+      }
+    },
+    "/provider/test": {
+      "post": {
+        "summary": "Test LLM Provider Connectivity",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["provider"],
+                "properties": {
+                  "provider": { "type": "string", "enum": ["ollama", "lmstudio", "openai", "gemini", "openrouter", "nvidia", "mock"] },
+                  "config": { "type": "object" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Connection test result with model list" }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "WebhookTriggerRequest": {
+        "type": "object",
+        "required": ["text"],
+        "properties": {
+          "contactId": { "type": "string", "description": "Unique identifier for the sender or thread", "example": "contact_wife" },
+          "senderName": { "type": "string", "description": "Display name of the sender", "example": "Maya" },
+          "text": { "type": "string", "description": "Incoming message text", "example": "When u coming home? 😤" },
+          "platform": { "type": "string", "description": "Source platform (whatsapp, telegram, webhook)", "default": "webhook" },
+          "forceMode": { "type": "string", "enum": ["personal", "professional"], "description": "Optional mode override for this request" }
+        }
+      },
+      "WebhookTriggerResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": true },
+          "reply": { "type": "string", "example": "soon soon 😂 stuck in traffikk u know how it issss. love u ❤️" },
+          "mode": { "type": "string", "enum": ["personal", "professional"], "example": "personal" },
+          "escalated": { "type": "boolean", "example": false },
+          "escalationReason": { "type": "string", "nullable": true },
+          "provider": { "type": "string", "example": "Ollama" },
+          "model": { "type": "string", "example": "llama3.2:latest" },
+          "delaySimulatedMs": { "type": "integer", "example": 2200 },
+          "processingTimeMs": { "type": "integer", "example": 380 }
+        }
+      },
+      "CreateContactRequest": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "example": "Sarah Connor" },
+          "handle": { "type": "string", "example": "+1 555 408-1122" },
+          "avatar": { "type": "string", "example": "💼" },
+          "platform": { "type": "string", "default": "whatsapp" },
+          "mode": { "type": "string", "enum": ["personal", "professional"], "default": "personal" },
+          "relationship_type": { "type": "string", "enum": ["friend", "spouse", "parent", "sibling", "colleague", "client"], "default": "friend" },
+          "delay_mode": { "type": "string", "enum": ["immediate", "natural", "delayed"], "default": "natural" },
+          "delay_seconds": { "type": "integer", "default": 3 }
+        }
+      },
+      "ChatSimulateResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "result": {
+            "type": "object",
+            "properties": {
+              "messageId": { "type": "string" },
+              "contactId": { "type": "string" },
+              "text": { "type": "string" },
+              "mode": { "type": "string" },
+              "provider": { "type": "string" },
+              "model": { "type": "string" },
+              "delaySimulatedMs": { "type": "integer" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

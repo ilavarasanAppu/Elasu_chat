@@ -1,0 +1,68 @@
+openapi: 3.0.3
+info:
+  title: GhostReply Auto-Response Engine API
+  description: >
+    Context-Aware Dual-Mode AI Auto-Response Assistant with RAG, Persona Mirroring,
+    and Multi-LLM provider support (Ollama, LM Studio, OpenAI, Gemini, OpenRouter, NVIDIA NIM).
+  version: 1.0.0
+servers:
+  - url: http://localhost:3000/api
+    description: Local Development Server
+paths:
+  /health:
+    get:
+      summary: Health Check
+      responses:
+        '200':
+          description: OK
+  /webhook/trigger:
+    post:
+      summary: External Automation Trigger
+      description: API Trigger for Zapier, n8n, Make, Flowise, and custom AI agents
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                contactId:
+                  type: string
+                  example: contact_wife
+                senderName:
+                  type: string
+                  example: Maya
+                text:
+                  type: string
+                  example: When u coming home? 😤
+                platform:
+                  type: string
+                  default: webhook
+                forceMode:
+                  type: string
+                  enum: [personal, professional]
+      responses:
+        '200':
+          description: Generated response
+  /chat/simulate:
+    post:
+      summary: Process incoming chat message
+      responses:
+        '200':
+          description: Processed
+  /contacts:
+    get:
+      summary: List all contacts
+    post:
+      summary: Create contact
+  /knowledge:
+    get:
+      summary: List RAG docs
+    post:
+      summary: Add document to RAG
+  /settings:
+    get:
+      summary: Get active settings
+    post:
+      summary: Update settings

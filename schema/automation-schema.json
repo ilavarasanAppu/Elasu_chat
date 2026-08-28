@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GhostReplyAutomationPayload",
+  "description": "JSON Schema for triggering GhostReply Dual-Mode AI Auto-Response from AI workflows (Zapier, n8n, Make, Flowise, LangChain)",
+  "type": "object",
+  "required": ["text"],
+  "properties": {
+    "contactId": {
+      "type": "string",
+      "description": "Unique identifier of the contact/phone/email/thread",
+      "default": "default_contact"
+    },
+    "senderName": {
+      "type": "string",
+      "description": "Display name of the sender",
+      "default": "Sender"
+    },
+    "text": {
+      "type": "string",
+      "description": "The incoming user message to respond to"
+    },
+    "platform": {
+      "type": "string",
+      "enum": ["whatsapp", "telegram", "webhook", "sms", "email", "simulator"],
+      "default": "webhook"
+    },
+    "forceMode": {
+      "type": "string",
+      "enum": ["personal", "professional"],
+      "description": "Optional: force 'personal' or 'professional' mode overriding contact defaults"
+    }
+  },
+  "examples": [
+    {
+      "contactId": "+15552345678",
+      "senderName": "Maya",
+      "text": "When u coming home? 😤",
+      "platform": "whatsapp"
+    },
+    {
+      "contactId": "customer_9942",
+      "senderName": "David Vance",
+      "text": "Do you offer refunds for enterprise accounts?",
+      "platform": "webhook",
+      "forceMode": "professional"
+    }
+  ]
+}

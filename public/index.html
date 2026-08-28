@@ -1,0 +1,1023 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GhostReply — Context-Aware Dual-Mode AI Auto-Response Assistant</title>
+  <meta name="description" content="Dual-mode AI auto-response assistant featuring RAG for professional customer support and persona mirroring for personal texting.">
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-container">
+    
+    <!-- Top Navigation Bar -->
+    <header class="top-nav">
+      <div class="nav-brand">
+        <div class="brand-logo-icon">
+          <i data-lucide="ghost"></i>
+          <span class="logo-pulse"></span>
+        </div>
+        <div class="brand-text">
+          <div class="brand-title">GhostReply <span class="brand-badge">DUAL-MODE</span></div>
+          <div class="brand-subtitle">Context-Aware Real-Time Auto-Response Engine</div>
+        </div>
+      </div>
+
+      <div class="nav-center-status">
+        <div class="provider-pill" id="activeProviderPill" title="Active AI Provider">
+          <span class="status-dot green"></span>
+          <span class="provider-label">AI:</span>
+          <strong id="currentProviderName">Smart Fallback</strong>
+        </div>
+        
+        <div class="auto-reply-toggle-container">
+          <span class="toggle-label">Global Auto-Reply</span>
+          <label class="switch">
+            <input type="checkbox" id="globalAutoReplyToggle" checked>
+            <span class="slider round"></span>
+          </label>
+        </div>
+      </div>
+
+      <div class="nav-actions">
+        <button class="btn btn-outline" id="openWizardBtn">
+          <i data-lucide="sparkles"></i>
+          <span>Setup Wizard</span>
+        </button>
+
+        <button class="btn btn-icon relative" id="navEscalationsBtn" title="Escalation Alerts">
+          <i data-lucide="shield-alert"></i>
+          <span class="badge-counter hidden" id="escalationBadge">0</span>
+        </button>
+
+        <button class="btn btn-primary" id="btnQuickTest">
+          <i data-lucide="message-square"></i>
+          <span>Live Studio</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Workspace Layout -->
+    <div class="main-body">
+      <!-- Sidebar Navigation -->
+      <aside class="sidebar">
+        <nav class="nav-menu">
+          <button class="nav-item active" data-view="view-chat">
+            <i data-lucide="message-circle"></i>
+            <span>Live Chat & Studio</span>
+            <span class="nav-indicator"></span>
+          </button>
+          
+          <button class="nav-item" data-view="view-providers">
+            <i data-lucide="cpu"></i>
+            <span>AI Providers & Models</span>
+          </button>
+          
+          <button class="nav-item" data-view="view-persona">
+            <i data-lucide="user-check"></i>
+            <span>Persona Profiler (Personal)</span>
+          </button>
+          
+          <button class="nav-item" data-view="view-knowledge">
+            <i data-lucide="book-open"></i>
+            <span>Knowledge Base (RAG)</span>
+          </button>
+          
+          <button class="nav-item" data-view="view-contacts">
+            <i data-lucide="users"></i>
+            <span>Contact Manager</span>
+          </button>
+
+          <button class="nav-item" data-view="view-escalations">
+            <i data-lucide="alert-triangle"></i>
+            <span>Safety & Escalations</span>
+          </button>
+
+          <button class="nav-item" data-view="view-integrations">
+            <i data-lucide="plug-2"></i>
+            <span>Integrations (WA / TG)</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="user-card">
+            <div class="user-avatar">AM</div>
+            <div class="user-info">
+              <span class="user-name" id="sidebarUserName">Alex Mercer</span>
+              <span class="user-role">Dual-Mode Represented</span>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Main Content Views Container -->
+      <main class="content-area">
+        
+        <!-- VIEW 1: LIVE CHAT & BRAIN INSPECTOR (DEFAULT VIEW) -->
+        <section id="view-chat" class="view-panel active">
+          <div class="chat-studio-grid">
+            
+            <!-- Left: Contact Switcher -->
+            <div class="studio-contacts-col glass-card">
+              <div class="col-header">
+                <h3><i data-lucide="users"></i> Active Threads</h3>
+                <button class="btn btn-sm btn-ghost" id="btnAddContactModal"><i data-lucide="plus"></i></button>
+              </div>
+              <div class="contact-search-box">
+                <i data-lucide="search"></i>
+                <input type="text" id="contactSearchInput" placeholder="Filter contacts...">
+              </div>
+              <div class="contacts-list" id="studioContactsList">
+                <!-- Populated via JS -->
+              </div>
+            </div>
+
+            <!-- Center: WhatsApp/Telegram Style Chat Screen -->
+            <div class="studio-chat-col glass-card">
+              <!-- Chat Header -->
+              <div class="chat-header">
+                <div class="active-contact-profile" id="chatHeaderContact">
+                  <div class="avatar-wrapper">
+                    <span class="contact-avatar-icon" id="chatAvatar">👩‍❤️‍👨</span>
+                    <span class="online-indicator"></span>
+                  </div>
+                  <div class="contact-meta">
+                    <h4 id="chatContactName">Maya (Wife)</h4>
+                    <span class="contact-subtitle" id="chatContactHandle">+1 (555) 234-5678 • WhatsApp</span>
+                  </div>
+                </div>
+
+                <!-- Mode Switcher Pill -->
+                <div class="mode-switcher-container">
+                  <span class="mode-label">Mode:</span>
+                  <div class="mode-toggle-group">
+                    <button class="btn-mode-toggle" id="btnSetPersonal" data-mode="personal">
+                      <i data-lucide="heart"></i> Personal
+                    </button>
+                    <button class="btn-mode-toggle" id="btnSetProfessional" data-mode="professional">
+                      <i data-lucide="briefcase"></i> Professional
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Quick Prompt Presets Bar -->
+              <div class="quick-presets-bar" id="quickPresetsBar">
+                <span class="preset-label">Test Prompts:</span>
+                <button class="chip-preset" data-text="When u coming home? 😤">"When u coming home? 😤"</button>
+                <button class="chip-preset" data-text="bro that party was wild last night 💀">"bro that party was wild 💀"</button>
+                <button class="chip-preset" data-text="Do you offer refunds?">"Do you offer refunds?"</button>
+                <button class="chip-preset" data-text="What are your pricing plans?">"What are your pricing plans?"</button>
+                <button class="chip-preset chip-urgent" data-text="URGENT: Call me right now, hospital emergency!">"🚨 Urgent Hospital Emergency"</button>
+              </div>
+
+              <!-- Chat Message Stream -->
+              <div class="chat-messages-container" id="chatMessagesContainer">
+                <!-- Messages populated dynamically -->
+              </div>
+
+              <!-- Typing Indicator Animation -->
+              <div class="typing-indicator-bar hidden" id="typingIndicator">
+                <div class="typing-dots">
+                  <span></span><span></span><span></span>
+                </div>
+                <span class="typing-text" id="typingText">GhostReply is typing naturally...</span>
+              </div>
+
+              <!-- Input Composer -->
+              <div class="chat-input-bar">
+                <input type="text" id="simulatedInputText" placeholder="Type an incoming message to test GhostReply..." autocomplete="off">
+                <button class="btn btn-primary" id="btnSendSimulated">
+                  <i data-lucide="send"></i>
+                  <span>Simulate Send</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Right: GhostReply AI Brain Inspector -->
+            <div class="studio-inspector-col glass-card">
+              <div class="col-header">
+                <h3><i data-lucide="activity"></i> GhostReply Brain</h3>
+                <span class="badge" id="brainModeBadge">Personal Mode</span>
+              </div>
+
+              <div class="inspector-scroll-area">
+                <!-- Status Card -->
+                <div class="brain-card">
+                  <div class="brain-card-title"><i data-lucide="cpu"></i> Active LLM Pipeline</div>
+                  <div class="brain-stat-grid">
+                    <div class="stat-box">
+                      <span class="stat-label">Provider</span>
+                      <strong id="inspectorProvider">-</strong>
+                    </div>
+                    <div class="stat-box">
+                      <span class="stat-label">Model</span>
+                      <strong id="inspectorModel">-</strong>
+                    </div>
+                    <div class="stat-box">
+                      <span class="stat-label">Latency</span>
+                      <strong id="inspectorLatency">~0 ms</strong>
+                    </div>
+                    <div class="stat-box">
+                      <span class="stat-label">Typing Delay</span>
+                      <strong id="inspectorDelay">~2.2s</strong>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Personal Mode Persona Breakdown (Visible when Personal Mode active) -->
+                <div class="brain-card" id="inspectorPersonaCard">
+                  <div class="brain-card-title"><i data-lucide="sparkles"></i> Persona Texting Metrics</div>
+                  <div class="persona-meter-list">
+                    <div class="meter-item">
+                      <div class="meter-labels">
+                        <span>Formality Score</span>
+                        <strong id="inspectorFormality">0.10 (Very Casual)</strong>
+                      </div>
+                      <div class="progress-bar">
+                        <div class="progress-fill cyan" id="meterFormality" style="width: 10%;"></div>
+                      </div>
+                    </div>
+                    
+                    <div class="meter-item">
+                      <div class="meter-labels">
+                        <span>Emoji Frequency</span>
+                        <strong id="inspectorEmojiFreq">90%</strong>
+                      </div>
+                      <div class="progress-bar">
+                        <div class="progress-fill purple" id="meterEmojiFreq" style="width: 90%;"></div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="tag-group">
+                    <span class="tag-title">Humor & Vibe:</span>
+                    <span class="tag-badge" id="inspectorHumor">Playful / Affectionate</span>
+                  </div>
+
+                  <div class="tag-group">
+                    <span class="tag-title">Top Emojis:</span>
+                    <span class="emoji-chips" id="inspectorTopEmojis">😂 🥰 😘 ❤️ 😤</span>
+                  </div>
+                </div>
+
+                <!-- Professional Mode RAG Breakdown (Visible when Professional Mode active) -->
+                <div class="brain-card hidden" id="inspectorRAGCard">
+                  <div class="brain-card-title"><i data-lucide="database"></i> Retrieved Knowledge Chunks</div>
+                  <div class="rag-chunks-list" id="inspectorRAGChunks">
+                    <div class="empty-hint">No query executed yet. Send a business query to inspect retrieved documents.</div>
+                  </div>
+                </div>
+
+                <!-- Dynamic System Prompt Preview Drawer -->
+                <div class="brain-card">
+                  <div class="brain-card-header-toggle" id="togglePromptDrawer">
+                    <div class="brain-card-title"><i data-lucide="code"></i> Dynamic Injected Prompt</div>
+                    <i data-lucide="chevron-down" id="chevronPrompt"></i>
+                  </div>
+                  <div class="code-preview-box" id="promptCodePreview">
+                    <pre><code id="inspectorPromptText">// Dynamic system prompt will appear here on next message...</code></pre>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+        <!-- VIEW 2: AI PROVIDERS & MODELS HUB -->
+        <section id="view-providers" class="view-panel">
+          <div class="view-header">
+            <div>
+              <h2><i data-lucide="cpu"></i> AI Provider Configuration</h2>
+              <p class="text-muted">Configure your local or cloud LLM backends. GhostReply supports unified multi-provider switching.</p>
+            </div>
+            <button class="btn btn-primary" id="btnSaveProviderSettings">
+              <i data-lucide="save"></i> Save Settings
+            </button>
+          </div>
+
+          <div class="providers-grid">
+            
+            <!-- 1. Ollama (Local) -->
+            <div class="provider-card glass-card" data-provider="ollama">
+              <div class="provider-card-header">
+                <div class="provider-icon-title">
+                  <div class="provider-logo-icon ollama-icon">🦙</div>
+                  <div>
+                    <h4>Ollama (Local)</h4>
+                    <span class="provider-desc">Local offline inference (Llama 3, Mistral, Qwen)</span>
+                  </div>
+                </div>
+                <button class="btn btn-sm btn-outline btn-test-provider" data-target="ollama">
+                  <i data-lucide="refresh-cw"></i> Test Ping
+                </button>
+              </div>
+
+              <div class="provider-form">
+                <div class="form-group">
+                  <label>Endpoint URL</label>
+                  <input type="text" id="cfg_ollama_endpoint" value="http://127.0.0.1:11434" placeholder="http://127.0.0.1:11434">
+                </div>
+                <div class="form-group">
+                  <label>Model Name</label>
+                  <input type="text" id="cfg_ollama_model" value="llama3.2:latest" placeholder="llama3.2:latest">
+                </div>
+                <div class="provider-status-msg" id="status_ollama"></div>
+                <button class="btn btn-sm btn-select-provider" data-select="ollama">Set as Active Provider</button>
+              </div>
+            </div>
+
+            <!-- 2. LM Studio (Local) -->
+            <div class="provider-card glass-card" data-provider="lmstudio">
+              <div class="provider-card-header">
+                <div class="provider-icon-title">
+                  <div class="provider-logo-icon lmstudio-icon">🧪</div>
+                  <div>
+                    <h4>LM Studio (Local)</h4>
+                    <span class="provider-desc">Local OpenAI-compatible server</span>
+                  </div>
+                </div>
+                <button class="btn btn-sm btn-outline btn-test-provider" data-target="lmstudio">
+                  <i data-lucide="refresh-cw"></i> Test Ping
+                </button>
+              </div>
+
+              <div class="provider-form">
+                <div class="form-group">
+                  <label>Endpoint URL</label>
+                  <input type="text" id="cfg_lmstudio_endpoint" value="http://127.0.0.1:1234/v1" placeholder="http://127.0.0.1:1234/v1">
+                </div>
+                <div class="form-group">
+                  <label>Model Name</label>
+                  <input type="text" id="cfg_lmstudio_model" value="local-model" placeholder="local-model">
+                </div>
+                <div class="provider-status-msg" id="status_lmstudio"></div>
+                <button class="btn btn-sm btn-select-provider" data-select="lmstudio">Set as Active Provider</button>
+              </div>
+            </div>
+
+            <!-- 3. OpenAI API Compatible -->
+            <div class="provider-card glass-card" data-provider="openai">
+              <div class="provider-card-header">
+                <div class="provider-icon-title">
+                  <div class="provider-logo-icon openai-icon">🟢</div>
+                  <div>
+                    <h4>OpenAI & Compatible</h4>
+                    <span class="provider-desc">OpenAI, Groq, DeepSeek, Together, vLLM</span>
+                  </div>
+                </div>
+                <button class="btn btn-sm btn-outline btn-test-provider" data-target="openai">
+                  <i data-lucide="refresh-cw"></i> Test Ping
+                </button>
+              </div>
+
+              <div class="provider-form">
+                <div class="form-group">
+                  <label>Endpoint URL</label>
+                  <input type="text" id="cfg_openai_endpoint" value="https://api.openai.com/v1" placeholder="https://api.openai.com/v1">
+                </div>
+                <div class="form-group">
+                  <label>API Key</label>
+                  <input type="password" id="cfg_openai_api_key" placeholder="sk-...">
+                </div>
+                <div class="form-group">
+                  <label>Model Name</label>
+                  <input type="text" id="cfg_openai_model" value="gpt-4o-mini" placeholder="gpt-4o-mini">
+                </div>
+                <div class="provider-status-msg" id="status_openai"></div>
+                <button class="btn btn-sm btn-select-provider" data-select="openai">Set as Active Provider</button>
+              </div>
+            </div>
+
+            <!-- 4. Google Gemini -->
+            <div class="provider-card glass-card" data-provider="gemini">
+              <div class="provider-card-header">
+                <div class="provider-icon-title">
+                  <div class="provider-logo-icon gemini-icon">✨</div>
+                  <div>
+                    <h4>Google Gemini</h4>
+                    <span class="provider-desc">Gemini 1.5 Flash, 1.5 Pro, 2.0 Flash</span>
+                  </div>
+                </div>
+                <button class="btn btn-sm btn-outline btn-test-provider" data-target="gemini">
+                  <i data-lucide="refresh-cw"></i> Test Ping
+                </button>
+              </div>
+
+              <div class="provider-form">
+                <div class="form-group">
+                  <label>Gemini API Key</label>
+                  <input type="password" id="cfg_gemini_api_key" placeholder="AIzaSy...">
+                </div>
+                <div class="form-group">
+                  <label>Model</label>
+                  <select id="cfg_gemini_model">
+                    <option value="gemini-1.5-flash">gemini-1.5-flash (Fast & Accurate)</option>
+                    <option value="gemini-1.5-pro">gemini-1.5-pro (Deep Reasoning)</option>
+                    <option value="gemini-2.0-flash-exp">gemini-2.0-flash-exp (Experimental)</option>
+                  </select>
+                </div>
+                <div class="provider-status-msg" id="status_gemini"></div>
+                <button class="btn btn-sm btn-select-provider" data-select="gemini">Set as Active Provider</button>
+              </div>
+            </div>
+
+            <!-- 5. OpenRouter -->
+            <div class="provider-card glass-card" data-provider="openrouter">
+              <div class="provider-card-header">
+                <div class="provider-icon-title">
+                  <div class="provider-logo-icon openrouter-icon">🌐</div>
+                  <div>
+                    <h4>OpenRouter</h4>
+                    <span class="provider-desc">Unified access to Claude 3.5, Llama 3.3, DeepSeek R1</span>
+                  </div>
+                </div>
+                <button class="btn btn-sm btn-outline btn-test-provider" data-target="openrouter">
+                  <i data-lucide="refresh-cw"></i> Test Ping
+                </button>
+              </div>
+
+              <div class="provider-form">
+                <div class="form-group">
+                  <label>OpenRouter API Key</label>
+                  <input type="password" id="cfg_openrouter_api_key" placeholder="sk-or-v1-...">
+                </div>
+                <div class="form-group">
+                  <label>Model Identifier</label>
+                  <input type="text" id="cfg_openrouter_model" value="meta-llama/llama-3.3-70b-instruct" placeholder="anthropic/claude-3.5-sonnet">
+                </div>
+                <div class="provider-status-msg" id="status_openrouter"></div>
+                <button class="btn btn-sm btn-select-provider" data-select="openrouter">Set as Active Provider</button>
+              </div>
+            </div>
+
+            <!-- 6. NVIDIA API (NIM) -->
+            <div class="provider-card glass-card" data-provider="nvidia">
+              <div class="provider-card-header">
+                <div class="provider-icon-title">
+                  <div class="provider-logo-icon nvidia-icon">⚡</div>
+                  <div>
+                    <h4>NVIDIA NIM API</h4>
+                    <span class="provider-desc">Enterprise accelerated Llama-3.1, Mixtral, Nemotron</span>
+                  </div>
+                </div>
+                <button class="btn btn-sm btn-outline btn-test-provider" data-target="nvidia">
+                  <i data-lucide="refresh-cw"></i> Test Ping
+                </button>
+              </div>
+
+              <div class="provider-form">
+                <div class="form-group">
+                  <label>NVIDIA API Key</label>
+                  <input type="password" id="cfg_nvidia_api_key" placeholder="nvapi-...">
+                </div>
+                <div class="form-group">
+                  <label>Endpoint URL</label>
+                  <input type="text" id="cfg_nvidia_endpoint" value="https://integrate.api.nvidia.com/v1">
+                </div>
+                <div class="form-group">
+                  <label>Model Name</label>
+                  <input type="text" id="cfg_nvidia_model" value="meta/llama-3.1-70b-instruct">
+                </div>
+                <div class="provider-status-msg" id="status_nvidia"></div>
+                <button class="btn btn-sm btn-select-provider" data-select="nvidia">Set as Active Provider</button>
+              </div>
+            </div>
+
+            <!-- 7. Smart Fallback Engine -->
+            <div class="provider-card glass-card" data-provider="mock">
+              <div class="provider-card-header">
+                <div class="provider-icon-title">
+                  <div class="provider-logo-icon fallback-icon">🤖</div>
+                  <div>
+                    <h4>Smart Fallback Engine</h4>
+                    <span class="provider-desc">Zero-config realistic simulation (Offline ready)</span>
+                  </div>
+                </div>
+                <button class="btn btn-sm btn-outline btn-test-provider" data-target="mock">
+                  <i data-lucide="check"></i> Ready
+                </button>
+              </div>
+
+              <div class="provider-form">
+                <p class="text-muted text-sm">Provides authentic Dual-Mode responses matching all prompt rules, RAG documents, and personal relationships without requiring any API keys or network connection.</p>
+                <button class="btn btn-sm btn-select-provider" data-select="mock">Set as Active Provider</button>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+        <!-- VIEW 3: PERSONA PROFILER & CHAT EXPORT UPLOADER -->
+        <section id="view-persona" class="view-panel">
+          <div class="view-header">
+            <div>
+              <h2><i data-lucide="user-check"></i> Persona Deep Learning Profiler</h2>
+              <p class="text-muted">4-Phase Linguistic & Emotional Analysis Engine for Personal Mode.</p>
+            </div>
+          </div>
+
+          <div class="persona-grid">
+            <!-- Upload Box -->
+            <div class="glass-card upload-section">
+              <h3><i data-lucide="upload-cloud"></i> Upload WhatsApp / Telegram Chat Export</h3>
+              <p class="text-muted">Upload a <code>_chat.txt</code> from WhatsApp or a <code>.json</code> export from Telegram to automatically extract your texting persona.</p>
+              
+              <div class="drop-zone" id="chatDropZone">
+                <i data-lucide="file-text" class="drop-icon"></i>
+                <p>Drag & Drop WhatsApp <code>_chat.txt</code> or Telegram export here</p>
+                <span class="text-muted">or click to browse files</span>
+                <input type="file" id="chatFileInput" accept=".txt,.json" class="hidden">
+              </div>
+
+              <div class="upload-options">
+                <div class="form-group">
+                  <label>Assign to Contact</label>
+                  <select id="personaContactSelect">
+                    <!-- Populated dynamically -->
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Your Name in Chat (User)</label>
+                  <input type="text" id="personaUserName" value="Alex" placeholder="e.g. Alex">
+                </div>
+              </div>
+
+              <button class="btn btn-primary w-full" id="btnAnalyzeChat">
+                <i data-lucide="sparkles"></i> Extract & Vectorize Persona
+              </button>
+            </div>
+
+            <!-- Profile Dashboard -->
+            <div class="glass-card profile-results-section">
+              <div class="col-header">
+                <h3><i data-lucide="bar-chart-3"></i> Extracted Persona Matrix</h3>
+                <span class="badge" id="profileContactNameBadge">Maya (Wife)</span>
+              </div>
+
+              <div class="phases-breakdown">
+                <!-- Phase 1 -->
+                <div class="phase-card">
+                  <h4>Phase 1: Linguistic Patterns</h4>
+                  <div class="metric-row">
+                    <span>Formality Level:</span>
+                    <strong id="profFormalityScore">0.10 / 1.0 (Casual Slang)</strong>
+                  </div>
+                  <div class="metric-row">
+                    <span>Average Message Length:</span>
+                    <strong id="profAvgLength">~7 words</strong>
+                  </div>
+                  <div class="metric-row">
+                    <span>Abbreviation Mapping:</span>
+                    <div class="code-pill-list" id="profAbbrevList">
+                      <span>you → u</span>
+                      <span>right now → rn</span>
+                      <span>are → r</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Phase 2 -->
+                <div class="phase-card">
+                  <h4>Phase 2: Emotional Expression</h4>
+                  <div class="metric-row">
+                    <span>Humor Classification:</span>
+                    <strong id="profHumor">Playful / Affectionate</strong>
+                  </div>
+                  <div class="metric-row">
+                    <span>Emoji Frequency:</span>
+                    <strong id="profEmojiFreq">90% of messages</strong>
+                  </div>
+                  <div class="metric-row">
+                    <span>Favorite Emojis:</span>
+                    <strong id="profFavoriteEmojis" class="emoji-list">😂 🥰 😘 ❤️ 😤</strong>
+                  </div>
+                </div>
+
+                <!-- Phase 3 -->
+                <div class="phase-card">
+                  <h4>Phase 3: Relationship Dynamics</h4>
+                  <div class="metric-row">
+                    <span>Relationship Type:</span>
+                    <strong id="profRelationType">Spouse / Partner</strong>
+                  </div>
+                  <div class="metric-row">
+                    <span>Inside Jokes & Shared Context:</span>
+                    <div class="tag-list" id="profInsideJokes">
+                      <span class="tag">stuck in traffic joke</span>
+                      <span class="tag">taco night craving</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Phase 4 -->
+                <div class="phase-card">
+                  <h4>Phase 4: Dynamic Prompt Verification</h4>
+                  <p class="text-xs text-muted">Few-shot examples learned from this chat history:</p>
+                  <div class="few-shot-box" id="profFewShotList">
+                    <!-- Few-shots -->
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+        <!-- VIEW 4: KNOWLEDGE BASE (RAG) -->
+        <section id="view-knowledge" class="view-panel">
+          <div class="view-header">
+            <div>
+              <h2><i data-lucide="book-open"></i> Professional Knowledge Base (RAG)</h2>
+              <p class="text-muted">Manage documents and test semantic retrieval for Professional Mode auto-responses.</p>
+            </div>
+            <button class="btn btn-primary" id="btnOpenAddDocModal">
+              <i data-lucide="plus"></i> Add Knowledge Document
+            </button>
+          </div>
+
+          <div class="knowledge-grid">
+            <!-- Left: Document List -->
+            <div class="glass-card doc-list-section">
+              <h3><i data-lucide="folder"></i> Indexed Documentation</h3>
+              <div class="doc-cards-list" id="knowledgeDocList">
+                <!-- Populated via JS -->
+              </div>
+            </div>
+
+            <!-- Right: RAG Query Sandbox -->
+            <div class="glass-card rag-sandbox-section">
+              <h3><i data-lucide="search"></i> Live RAG Query Sandbox</h3>
+              <p class="text-muted">Test how GhostReply retrieves documentation and checks for policy citations or escalation keywords.</p>
+              
+              <div class="sandbox-input-box">
+                <input type="text" id="ragSandboxQuery" placeholder="Ask a customer question (e.g., 'What is your refund policy?' or 'pricing tiers')...">
+                <button class="btn btn-primary" id="btnRunRagTest">
+                  <i data-lucide="play"></i> Test Retrieval
+                </button>
+              </div>
+
+              <div class="rag-results-area" id="ragSandboxResults">
+                <div class="empty-hint">Enter a query above to see real-time chunk matching & confidence scores.</div>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+        <!-- VIEW 5: CONTACT MANAGER -->
+        <section id="view-contacts" class="view-panel">
+          <div class="view-header">
+            <div>
+              <h2><i data-lucide="users"></i> Contact Management Directory</h2>
+              <p class="text-muted">Set specific modes (Professional vs Personal), auto-reply toggles, and typing delay rules per contact.</p>
+            </div>
+            <button class="btn btn-primary" id="btnAddNewContact">
+              <i data-lucide="user-plus"></i> Add Contact
+            </button>
+          </div>
+
+          <div class="glass-card contacts-table-card">
+            <table class="custom-table" id="contactsTable">
+              <thead>
+                <tr>
+                  <th>Contact</th>
+                  <th>Platform</th>
+                  <th>Mode</th>
+                  <th>Relationship</th>
+                  <th>Auto-Reply</th>
+                  <th>Typing Delay</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="contactsTableBody">
+                <!-- Populated via JS -->
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- VIEW 6: SAFETY & ESCALATION CENTER -->
+        <section id="view-escalations" class="view-panel">
+          <div class="view-header">
+            <div>
+              <h2><i data-lucide="shield-alert"></i> Safety & Escalation Center</h2>
+              <p class="text-muted">Human-in-the-loop review queue for emergencies, pricing disputes, and legal queries.</p>
+            </div>
+            <button class="btn btn-outline" id="btnRefreshEscalations">
+              <i data-lucide="refresh-cw"></i> Refresh Queue
+            </button>
+          </div>
+
+          <div class="glass-card escalations-container">
+            <div class="escalations-list" id="escalationsList">
+              <!-- Populated via JS -->
+            </div>
+          </div>
+        </section>
+
+        <!-- VIEW 7: INTEGRATIONS (WHATSAPP / TELEGRAM) -->
+        <section id="view-integrations" class="view-panel">
+          <div class="view-header">
+            <div>
+              <h2><i data-lucide="plug-2"></i> Messaging Platform Integrations</h2>
+              <p class="text-muted">Connect live WhatsApp Web via QR code and Telegram Bot API.</p>
+            </div>
+          </div>
+
+          <div class="integrations-grid">
+            <!-- WhatsApp Web Card -->
+            <div class="glass-card integration-card">
+              <div class="integration-header">
+                <div class="integration-icon wa-bg"><i data-lucide="message-square"></i></div>
+                <div>
+                  <h4>WhatsApp Web</h4>
+                  <span class="text-muted text-sm">Scan QR code with WhatsApp on your phone</span>
+                </div>
+                <span class="status-badge" id="waStatusBadge">Disconnected</span>
+              </div>
+
+              <div class="integration-body">
+                <div class="qr-box" id="waQrBox">
+                  <div class="qr-placeholder" id="waQrPlaceholder">
+                    <i data-lucide="qr-code"></i>
+                    <p>Click below to generate WhatsApp QR Code</p>
+                  </div>
+                </div>
+
+                <div class="integration-actions">
+                  <button class="btn btn-primary" id="btnGenerateWaQR"><i data-lucide="qr-code"></i> Generate QR Code</button>
+                  <button class="btn btn-outline" id="btnConnectMockWA"><i data-lucide="check-circle"></i> Quick Simulate Connect</button>
+                  <button class="btn btn-danger hidden" id="btnDisconnectWA"><i data-lucide="power"></i> Disconnect</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Telegram Bot Card -->
+            <div class="glass-card integration-card">
+              <div class="integration-header">
+                <div class="integration-icon tg-bg"><i data-lucide="send"></i></div>
+                <div>
+                  <h4>Telegram Bot</h4>
+                  <span class="text-muted text-sm">Connect via Telegram BotFather Token</span>
+                </div>
+                <span class="status-badge" id="tgStatusBadge">Disconnected</span>
+              </div>
+
+              <div class="integration-body">
+                <div class="form-group">
+                  <label>Telegram Bot Token</label>
+                  <input type="password" id="tgBotToken" placeholder="123456789:ABCdefGhIJKlmNoPQRstuVWXyz...">
+                </div>
+
+                <div class="tg-status-box" id="tgStatusBox">
+                  <p class="text-muted text-sm">Create a bot using @BotFather in Telegram and paste the token above.</p>
+                </div>
+
+                <div class="integration-actions">
+                  <button class="btn btn-primary" id="btnVerifyTgToken"><i data-lucide="link"></i> Verify & Connect Token</button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+      </main>
+    </div>
+
+    <!-- MODAL: 5-STEP INSTALLATION WIZARD -->
+    <div class="modal-overlay hidden" id="wizardModal">
+      <div class="modal-card wizard-modal glass-card">
+        <div class="wizard-header">
+          <div class="wizard-title">
+            <i data-lucide="sparkles"></i>
+            <div>
+              <h3>GhostReply Setup Wizard</h3>
+              <span class="text-muted text-xs">Configure your intelligent auto-responder in 5 easy steps</span>
+            </div>
+          </div>
+          <button class="btn-close-modal" id="btnCloseWizard"><i data-lucide="x"></i></button>
+        </div>
+
+        <div class="wizard-stepper">
+          <div class="step-item active" data-step="1"><span>1</span><label>Mode</label></div>
+          <div class="step-line"></div>
+          <div class="step-item" data-step="2"><span>2</span><label>Platform</label></div>
+          <div class="step-line"></div>
+          <div class="step-item" data-step="3"><span>3</span><label>Knowledge</label></div>
+          <div class="step-line"></div>
+          <div class="step-item" data-step="4"><span>4</span><label>Contacts</label></div>
+          <div class="step-line"></div>
+          <div class="step-item" data-step="5"><span>5</span><label>Activate</label></div>
+        </div>
+
+        <div class="wizard-content">
+          <!-- Step 1: Mode Selection -->
+          <div class="wizard-step-pane active" id="wizardStep1">
+            <h4>Step 1: Choose Your Primary Mode</h4>
+            <p class="text-muted">Select how GhostReply should primarily assist you (can be customized per contact later):</p>
+            
+            <div class="mode-choice-grid">
+              <div class="mode-choice-card selected" data-choice="personal">
+                <div class="mode-choice-icon">❤️</div>
+                <h4>Personal Mode</h4>
+                <p>Learns YOUR texting style from chat history. Mimics personality, slang, humor, and emotional nuances for friends and family.</p>
+              </div>
+              <div class="mode-choice-card" data-choice="professional">
+                <div class="mode-choice-icon">💼</div>
+                <h4>Professional Mode</h4>
+                <p>Knowledge-grounded RAG replies for customer inquiries, business support, and company policy answers.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 2: Platform Connection -->
+          <div class="wizard-step-pane" id="wizardStep2">
+            <h4>Step 2: Connect Messaging Platforms</h4>
+            <p class="text-muted">Select platforms to enable real-time auto-replies:</p>
+            
+            <div class="platform-checkbox-list">
+              <label class="platform-checkbox-item">
+                <input type="checkbox" checked id="wizCheckSimulator">
+                <div>
+                  <strong>Live Chat Simulator & Webhook Studio</strong>
+                  <span class="text-muted text-xs">Test immediately in the dashboard without external accounts</span>
+                </div>
+              </label>
+              <label class="platform-checkbox-item">
+                <input type="checkbox" id="wizCheckWA">
+                <div>
+                  <strong>WhatsApp Web Integration</strong>
+                  <span class="text-muted text-xs">Persistent session with QR code authentication</span>
+                </div>
+              </label>
+              <label class="platform-checkbox-item">
+                <input type="checkbox" id="wizCheckTG">
+                <div>
+                  <strong>Telegram Bot API</strong>
+                  <span class="text-muted text-xs">Real-time messaging via Telegram Bot token</span>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <!-- Step 3: Knowledge / Persona Setup -->
+          <div class="wizard-step-pane" id="wizardStep3">
+            <h4>Step 3: Setup Knowledge Base & Personality</h4>
+            <p class="text-muted">GhostReply comes pre-loaded with sample docs and persona models. You can also import custom data now:</p>
+            
+            <div class="setup-quick-actions">
+              <div class="quick-action-box">
+                <strong><i data-lucide="file-check"></i> Sample RAG Documentation Loaded</strong>
+                <span class="text-muted text-xs">Refund Policy, Pricing & SLA Matrix, Security Guidelines</span>
+              </div>
+              <div class="quick-action-box">
+                <strong><i data-lucide="users"></i> Sample Persona Vectors Configured</strong>
+                <span class="text-muted text-xs">Spouse (Maya), Best Friend (Jake), Enterprise Client (David)</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 4: Contact Tuning -->
+          <div class="wizard-step-pane" id="wizardStep4">
+            <h4>Step 4: Contact & Safety Configuration</h4>
+            <div class="form-group">
+              <label>Your Display Name</label>
+              <input type="text" id="wizUserName" value="Alex Mercer">
+            </div>
+            <div class="form-group">
+              <label>Default Typing Delay Style</label>
+              <select id="wizDelayMode">
+                <option value="natural">Natural Typing Simulation (~1.5s - 3.5s)</option>
+                <option value="immediate">Immediate Fast Reply (<1s)</option>
+                <option value="delayed">Delayed Queue (~5s)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Emergency Escalation Filter</label>
+              <p class="text-muted text-xs">Automatically flags messages with "urgent", "emergency", "hospital", "lawyer" for human review.</p>
+              <label class="switch">
+                <input type="checkbox" checked id="wizSafetySwitch">
+                <span class="slider round"></span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Step 5: Activation -->
+          <div class="wizard-step-pane" id="wizardStep5">
+            <div class="activation-screen">
+              <div class="activation-icon"><i data-lucide="check-circle-2"></i></div>
+              <h3>GhostReply is Ready for Action!</h3>
+              <p class="text-muted">Your Dual-Mode Context-Aware Auto-Response engine is fully initialized.</p>
+              <div class="ready-features-badge">
+                <span>✓ Dual-Mode Locked</span>
+                <span>✓ RAG Knowledge Ready</span>
+                <span>✓ Multi-LLM Connected</span>
+                <span>✓ Safety Guardrails Active</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="wizard-footer">
+          <button class="btn btn-outline" id="btnWizardPrev" disabled>Back</button>
+          <button class="btn btn-primary" id="btnWizardNext">Next <i data-lucide="arrow-right"></i></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: ADD KNOWLEDGE DOCUMENT -->
+    <div class="modal-overlay hidden" id="addDocModal">
+      <div class="modal-card glass-card">
+        <div class="modal-header">
+          <h3><i data-lucide="file-plus"></i> Add Knowledge Base Document</h3>
+          <button class="btn-close-modal" id="btnCloseDocModal"><i data-lucide="x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>Document Title</label>
+            <input type="text" id="newDocTitle" placeholder="e.g. Return & Warranty Policy">
+          </div>
+          <div class="form-group">
+            <label>Category</label>
+            <input type="text" id="newDocCategory" value="policies" placeholder="e.g. policies, pricing, faq">
+          </div>
+          <div class="form-group">
+            <label>Content / Documentation Text</label>
+            <textarea id="newDocContent" rows="8" placeholder="Paste your company policies, technical specs, or FAQs here..."></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline" id="btnCancelDocModal">Cancel</button>
+          <button class="btn btn-primary" id="btnSaveNewDoc"><i data-lucide="upload"></i> Index Document</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: ADD / EDIT CONTACT -->
+    <div class="modal-overlay hidden" id="contactModal">
+      <div class="modal-card glass-card">
+        <div class="modal-header">
+          <h3><i data-lucide="user-plus"></i> Add New Contact</h3>
+          <button class="btn-close-modal" id="btnCloseContactModal"><i data-lucide="x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>Full Name</label>
+            <input type="text" id="newContactName" placeholder="e.g. John Doe">
+          </div>
+          <div class="form-group">
+            <label>Phone / Email Handle</label>
+            <input type="text" id="newContactHandle" placeholder="e.g. +1 555-0144">
+          </div>
+          <div class="form-group">
+            <label>Avatar Emoji</label>
+            <input type="text" id="newContactAvatar" value="👤" maxlength="4">
+          </div>
+          <div class="form-group">
+            <label>Auto-Response Mode</label>
+            <select id="newContactMode">
+              <option value="personal">Personal Mode (Mirror My Persona)</option>
+              <option value="professional">Professional Mode (RAG Docs)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Relationship Type</label>
+            <select id="newContactRelationship">
+              <option value="friend">Friend / Social</option>
+              <option value="spouse">Spouse / Partner</option>
+              <option value="parent">Parent / Family</option>
+              <option value="sibling">Sibling</option>
+              <option value="colleague">Colleague</option>
+              <option value="client">Client / Customer</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline" id="btnCancelContactModal">Cancel</button>
+          <button class="btn btn-primary" id="btnSaveNewContact">Save Contact</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    lucide.createIcons();
+  </script>
+</body>
+</html>
