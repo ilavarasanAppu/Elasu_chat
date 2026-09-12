@@ -9,6 +9,8 @@ const personalityService = require('../services/personalityService');
 const decisionEngine = require('../services/decisionEngine');
 const whatsappService = require('../services/whatsappService');
 const telegramService = require('../services/telegramService');
+const signalService = require('../services/signalService');
+const voiceService = require('../services/voiceService');
 
 // Multer memory storage for chat & doc uploads
 const upload = multer({ storage: multer.memoryStorage() });
@@ -126,6 +128,17 @@ router.post('/provider/test', async (req, res) => {
     res.json(result);
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Fetch available models from a provider API
+router.post('/provider/models', async (req, res) => {
+  try {
+    const { provider, config } = req.body;
+    const result = await llmService.fetchModels(provider, config);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message, models: [] });
   }
 });
 
@@ -520,8 +533,8 @@ router.get('/integrations/whatsapp/status', (req, res) => {
   res.json({ success: true, ...whatsappService.getStatus() });
 });
 
-router.post('/integrations/whatsapp/qr', (req, res) => {
-  const qr = whatsappService.generateMockQR();
+router.post('/integrations/whatsapp/qr', async (req, res) => {
+  const qr = await whatsappService.generateMockQR();
   res.json({ success: true, ...qr });
 });
 
@@ -540,6 +553,89 @@ router.post('/integrations/telegram/verify', async (req, res) => {
   const { token } = req.body;
   const result = await telegramService.verifyBotToken(token);
   res.json(result);
+});
+
+// --- 10. Signal Messenger Integration ---
+router.get('/integrations/signal/status', async (req, res) => {
+  try {
+    const status = await signalService.getStatus();
+    res.json({ success: true, ...status });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/integrations/signal/link', async (req, res) => {
+  try {
+    const { phone, endpoint } = req.body || {};
+    const qr = await signalService.generateLinkQR(endpoint, phone);
+    res.json(qr);
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.post('/integrations/signal/connect', async (req, res) => {
+  const { phone, endpoint } = req.body;
+  const result = await signalService.connectSession(phone, endpoint);
+  res.json(result);
+});
+
+router.post('/integrations/signal/disconnect', async (req, res) => {
+  const result = await signalService.disconnect();
+  res.json(result);
+});
+
+router.post('/integrations/signal/receive', async (req, res) => {
+  try {
+    const from = req.body.from || req.body.sender || req.body.source;
+    const text = req.body.text || req.body.message || req.body.body;
+    const senderName = req.body.senderName || req.body.name || from;
+    const result = await signalService.handleIncomingSignalMessage({ from, text, senderName });
+    res.json({ success: true, result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// --- 11. Voice Studio & Audio Rhythm Endpoints ---
+router.get('/voice/config', async (req, res) => {
+  try {
+    const settings = await llmService.getSettings();
+    res.json({
+      success: true,
+      emotionProfiles: voiceService.getEmotionProfiles(),
+      languageSpeechMap: voiceService.getLanguageMap(),
+      currentSettings: {
+        preferred_language: settings.preferred_language || 'tanglish',
+        code_switching_ratio: settings.code_switching_ratio || '98',
+        response_speed_mode: settings.response_speed_mode || 'quick',
+        voice_pitch: settings.voice_pitch || '1.0',
+        voice_rate: settings.voice_rate || '1.05',
+        voice_emotion: settings.voice_emotion || 'warm',
+        voice_timbre: settings.voice_timbre || 'default',
+        voice_asr_lang: settings.voice_asr_lang || 'ta-IN'
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/voice/config', async (req, res) => {
+  try {
+    const { pitch, rate, emotion, preferred_language, response_speed_mode, asr_lang } = req.body;
+    if (pitch !== undefined) await runAsync(`UPDATE settings SET value = ? WHERE key = 'voice_pitch'`, [String(pitch)]);
+    if (rate !== undefined) await runAsync(`UPDATE settings SET value = ? WHERE key = 'voice_rate'`, [String(rate)]);
+    if (emotion !== undefined) await runAsync(`UPDATE settings SET value = ? WHERE key = 'voice_emotion'`, [String(emotion)]);
+    if (preferred_language !== undefined) await runAsync(`UPDATE settings SET value = ? WHERE key = 'preferred_language'`, [String(preferred_language)]);
+    if (response_speed_mode !== undefined) await runAsync(`UPDATE settings SET value = ? WHERE key = 'response_speed_mode'`, [String(response_speed_mode)]);
+    if (asr_lang !== undefined) await runAsync(`UPDATE settings SET value = ? WHERE key = 'voice_asr_lang'`, [String(asr_lang)]);
+
+    res.json({ success: true, message: 'Voice and language settings updated successfully.' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 module.exports = router;

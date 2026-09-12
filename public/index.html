@@ -33,11 +33,53 @@
       </div>
 
       <div class="nav-center-status">
-        <div class="provider-pill" id="activeProviderPill" title="Active AI Provider">
-          <span class="status-dot green"></span>
-          <span class="provider-label">AI:</span>
-          <strong id="currentProviderName">Smart Fallback</strong>
+        <!-- Interactive Header AI Provider & Model Toolbar -->
+        <div class="header-ai-toolbar" id="headerAiToolbar">
+          <div class="header-select-group header-provider-group" title="Active AI Provider">
+            <span class="status-dot green" id="headerStatusDot"></span>
+            <span class="header-select-icon"><i data-lucide="cpu"></i></span>
+            <select id="headerProviderSelect" class="header-dropdown header-provider-dropdown">
+              <option value="ollama">Ollama (Local)</option>
+              <option value="lmstudio">LM Studio (Local)</option>
+              <option value="openai">OpenAI Compatible</option>
+              <option value="gemini">Google Gemini</option>
+              <option value="openrouter">OpenRouter</option>
+              <option value="nvidia">NVIDIA NIM</option>
+              <option value="mock">Smart Fallback Engine</option>
+            </select>
+          </div>
+
+          <div class="header-select-group header-model-group" title="Active Model">
+            <span class="header-select-icon"><i data-lucide="box"></i></span>
+            <select id="headerModelSelect" class="header-dropdown header-model-dropdown">
+              <option value="">Loading models...</option>
+            </select>
+            <button class="header-btn-refresh" id="headerReloadModelsBtn" title="Reload Models from Provider API" type="button">
+              <i data-lucide="rotate-cw"></i>
+            </button>
+          </div>
+
+          <div class="header-select-group header-lang-group" title="Preferred Language & Code-Switching">
+            <span class="header-select-icon"><i data-lucide="languages"></i></span>
+            <select id="headerLanguageSelect" class="header-dropdown header-lang-dropdown">
+              <option value="tanglish" selected>Tanglish (Tamil+Eng 98%)</option>
+              <option value="english">English (Global)</option>
+              <option value="hinglish">Hinglish (Hindi+Eng)</option>
+              <option value="tenglish">Tenglish (Telugu+Eng)</option>
+              <option value="manglish">Manglish (Malayalam+Eng)</option>
+              <option value="kanglish">Kanglish (Kannada+Eng)</option>
+              <option value="tamil">Tamil (தமிழ்)</option>
+            </select>
+          </div>
+
+          <button class="header-btn-speed active" id="headerSpeedModeBtn" title="Toggle Response Speed (Quick <2s vs Deep Thinking)" type="button">
+            <i data-lucide="zap"></i>
+            <span id="speedModeLabel">⚡ Quick</span>
+          </button>
         </div>
+        <!-- Hidden elements for legacy script compatibility -->
+        <span id="currentProviderName" style="display:none;">Smart Fallback</span>
+        <div id="activeProviderPill" style="display:none;"></div>
         
         <div class="auto-reply-toggle-container">
           <span class="toggle-label">Global Auto-Reply</span>
@@ -173,10 +215,10 @@
               <!-- Quick Prompt Presets Bar -->
               <div class="quick-presets-bar" id="quickPresetsBar">
                 <span class="preset-label">Test Prompts:</span>
+                <button class="chip-preset" data-text="Enna pandre chellam? 🥰">"Enna pandre chellam? 🥰"</button>
+                <button class="chip-preset" data-text="Epdi irukka? Sapdiya?">"Epdi irukka? Sapdiya?"</button>
+                <button class="chip-preset" data-text="Innaiku dinner ku polaama? 🌮">"Innaiku dinner ku polaama? 🌮"</button>
                 <button class="chip-preset" data-text="When u coming home? 😤">"When u coming home? 😤"</button>
-                <button class="chip-preset" data-text="bro that party was wild last night 💀">"bro that party was wild 💀"</button>
-                <button class="chip-preset" data-text="Do you offer refunds?">"Do you offer refunds?"</button>
-                <button class="chip-preset" data-text="What are your pricing plans?">"What are your pricing plans?"</button>
                 <button class="chip-preset chip-urgent" data-text="URGENT: Call me right now, hospital emergency!">"🚨 Urgent Hospital Emergency"</button>
               </div>
 
@@ -193,9 +235,21 @@
                 <span class="typing-text" id="typingText">GhostReply is typing naturally...</span>
               </div>
 
+              <!-- Voice Recording Listening Indicator -->
+              <div class="voice-listening-indicator hidden" id="voiceListeningBar">
+                <div class="voice-pulse-ring"></div>
+                <div class="voice-wave-bars">
+                  <span></span><span></span><span></span><span></span><span></span>
+                </div>
+                <span class="voice-status-label" id="voiceStatusLabel">Listening to your voice (Tanglish / English)... Click mic again to send</span>
+              </div>
+
               <!-- Input Composer -->
               <div class="chat-input-bar">
-                <input type="text" id="simulatedInputText" placeholder="Type an incoming message to test GhostReply..." autocomplete="off">
+                <button class="btn btn-icon btn-mic" id="btnVoiceRecord" title="Speak to Text (Voice ASR) - Click to talk" type="button">
+                  <i data-lucide="mic"></i>
+                </button>
+                <input type="text" id="simulatedInputText" placeholder="Type or click 🎙️ mic to speak in Tanglish/English..." autocomplete="off">
                 <button class="btn btn-primary" id="btnSendSimulated">
                   <i data-lucide="send"></i>
                   <span>Simulate Send</span>
@@ -330,8 +384,16 @@
                   <input type="text" id="cfg_ollama_endpoint" value="http://127.0.0.1:11434" placeholder="http://127.0.0.1:11434">
                 </div>
                 <div class="form-group">
-                  <label>Model Name</label>
-                  <input type="text" id="cfg_ollama_model" value="llama3.2:latest" placeholder="llama3.2:latest">
+                  <label>Model</label>
+                  <div class="model-selector-row">
+                    <button class="btn btn-sm btn-outline btn-load-models" data-provider="ollama" type="button">
+                      <i data-lucide="download-cloud"></i> Load Models
+                    </button>
+                    <select id="cfg_ollama_model" class="model-dropdown">
+                      <option value="llama3.2:latest">llama3.2:latest</option>
+                    </select>
+                  </div>
+                  <input type="text" id="cfg_ollama_model_custom" class="model-custom-input" placeholder="Or type custom model name...">
                 </div>
                 <div class="provider-status-msg" id="status_ollama"></div>
                 <button class="btn btn-sm btn-select-provider" data-select="ollama">Set as Active Provider</button>
@@ -359,8 +421,16 @@
                   <input type="text" id="cfg_lmstudio_endpoint" value="http://127.0.0.1:1234/v1" placeholder="http://127.0.0.1:1234/v1">
                 </div>
                 <div class="form-group">
-                  <label>Model Name</label>
-                  <input type="text" id="cfg_lmstudio_model" value="local-model" placeholder="local-model">
+                  <label>Model</label>
+                  <div class="model-selector-row">
+                    <button class="btn btn-sm btn-outline btn-load-models" data-provider="lmstudio" type="button">
+                      <i data-lucide="download-cloud"></i> Load Models
+                    </button>
+                    <select id="cfg_lmstudio_model" class="model-dropdown">
+                      <option value="local-model">local-model</option>
+                    </select>
+                  </div>
+                  <input type="text" id="cfg_lmstudio_model_custom" class="model-custom-input" placeholder="Or type custom model name...">
                 </div>
                 <div class="provider-status-msg" id="status_lmstudio"></div>
                 <button class="btn btn-sm btn-select-provider" data-select="lmstudio">Set as Active Provider</button>
@@ -392,8 +462,16 @@
                   <input type="password" id="cfg_openai_api_key" placeholder="sk-...">
                 </div>
                 <div class="form-group">
-                  <label>Model Name</label>
-                  <input type="text" id="cfg_openai_model" value="gpt-4o-mini" placeholder="gpt-4o-mini">
+                  <label>Model</label>
+                  <div class="model-selector-row">
+                    <button class="btn btn-sm btn-outline btn-load-models" data-provider="openai" type="button">
+                      <i data-lucide="download-cloud"></i> Load Models
+                    </button>
+                    <select id="cfg_openai_model" class="model-dropdown">
+                      <option value="gpt-4o-mini">gpt-4o-mini</option>
+                    </select>
+                  </div>
+                  <input type="text" id="cfg_openai_model_custom" class="model-custom-input" placeholder="Or type custom model name...">
                 </div>
                 <div class="provider-status-msg" id="status_openai"></div>
                 <button class="btn btn-sm btn-select-provider" data-select="openai">Set as Active Provider</button>
@@ -422,11 +500,17 @@
                 </div>
                 <div class="form-group">
                   <label>Model</label>
-                  <select id="cfg_gemini_model">
-                    <option value="gemini-1.5-flash">gemini-1.5-flash (Fast & Accurate)</option>
-                    <option value="gemini-1.5-pro">gemini-1.5-pro (Deep Reasoning)</option>
-                    <option value="gemini-2.0-flash-exp">gemini-2.0-flash-exp (Experimental)</option>
-                  </select>
+                  <div class="model-selector-row">
+                    <button class="btn btn-sm btn-outline btn-load-models" data-provider="gemini" type="button">
+                      <i data-lucide="download-cloud"></i> Load Models
+                    </button>
+                    <select id="cfg_gemini_model" class="model-dropdown">
+                      <option value="gemini-1.5-flash">gemini-1.5-flash (Fast & Accurate)</option>
+                      <option value="gemini-1.5-pro">gemini-1.5-pro (Deep Reasoning)</option>
+                      <option value="gemini-2.0-flash-exp">gemini-2.0-flash-exp (Experimental)</option>
+                    </select>
+                  </div>
+                  <input type="text" id="cfg_gemini_model_custom" class="model-custom-input" placeholder="Or type custom model name...">
                 </div>
                 <div class="provider-status-msg" id="status_gemini"></div>
                 <button class="btn btn-sm btn-select-provider" data-select="gemini">Set as Active Provider</button>
@@ -454,8 +538,16 @@
                   <input type="password" id="cfg_openrouter_api_key" placeholder="sk-or-v1-...">
                 </div>
                 <div class="form-group">
-                  <label>Model Identifier</label>
-                  <input type="text" id="cfg_openrouter_model" value="meta-llama/llama-3.3-70b-instruct" placeholder="anthropic/claude-3.5-sonnet">
+                  <label>Model</label>
+                  <div class="model-selector-row">
+                    <button class="btn btn-sm btn-outline btn-load-models" data-provider="openrouter" type="button">
+                      <i data-lucide="download-cloud"></i> Load Models
+                    </button>
+                    <select id="cfg_openrouter_model" class="model-dropdown">
+                      <option value="meta-llama/llama-3.3-70b-instruct">meta-llama/llama-3.3-70b-instruct</option>
+                    </select>
+                  </div>
+                  <input type="text" id="cfg_openrouter_model_custom" class="model-custom-input" placeholder="Or type custom model name...">
                 </div>
                 <div class="provider-status-msg" id="status_openrouter"></div>
                 <button class="btn btn-sm btn-select-provider" data-select="openrouter">Set as Active Provider</button>
@@ -487,8 +579,16 @@
                   <input type="text" id="cfg_nvidia_endpoint" value="https://integrate.api.nvidia.com/v1">
                 </div>
                 <div class="form-group">
-                  <label>Model Name</label>
-                  <input type="text" id="cfg_nvidia_model" value="meta/llama-3.1-70b-instruct">
+                  <label>Model</label>
+                  <div class="model-selector-row">
+                    <button class="btn btn-sm btn-outline btn-load-models" data-provider="nvidia" type="button">
+                      <i data-lucide="download-cloud"></i> Load Models
+                    </button>
+                    <select id="cfg_nvidia_model" class="model-dropdown">
+                      <option value="meta/llama-3.1-70b-instruct">meta/llama-3.1-70b-instruct</option>
+                    </select>
+                  </div>
+                  <input type="text" id="cfg_nvidia_model_custom" class="model-custom-input" placeholder="Or type custom model name...">
                 </div>
                 <div class="provider-status-msg" id="status_nvidia"></div>
                 <button class="btn btn-sm btn-select-provider" data-select="nvidia">Set as Active Provider</button>
@@ -630,6 +730,129 @@
                   </div>
                 </div>
 
+              </div>
+            </div>
+
+            <!-- Language & Code-Switching Studio Card -->
+            <div class="glass-card language-studio-section" style="grid-column: 1 / -1; margin-top: 16px;">
+              <div class="col-header">
+                <h3><i data-lucide="languages"></i> Language & Code-Switching Studio</h3>
+                <span class="badge" id="badgeActiveLang">98% Tanglish Active</span>
+              </div>
+              <p class="text-muted text-sm">Configure how GhostReply blends languages (Tanglish, Hinglish, Tenglish, Manglish, Kanglish, or English) to mirror real human texting.</p>
+
+              <div class="settings-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-top: 12px;">
+                <div class="form-group">
+                  <label>Primary Conversational Language</label>
+                  <select id="personaLanguageSelect" class="form-control">
+                    <option value="tanglish" selected>Tanglish (Tamil + English 98% blend)</option>
+                    <option value="english">English (Global SMS)</option>
+                    <option value="hinglish">Hinglish (Hindi + English)</option>
+                    <option value="tenglish">Tenglish (Telugu + English)</option>
+                    <option value="manglish">Manglish (Malayalam + English)</option>
+                    <option value="kanglish">Kanglish (Kannada + English)</option>
+                    <option value="tamil">Tamil Script (தமிழ்)</option>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label>Code-Switching Ratio: <strong id="valCodeSwitchRatio">98%</strong></label>
+                  <input type="range" id="rangeCodeSwitchRatio" min="50" max="100" value="98" class="form-range">
+                  <span class="text-xs text-muted">98% = Seamless colloquial blend of Tamil in Latin script with everyday English</span>
+                </div>
+
+                <div class="form-group">
+                  <label>Auto-Response Speed Mode</label>
+                  <select id="personaSpeedSelect" class="form-control">
+                    <option value="quick" selected>⚡ Quick Answer Mode (Instant sub-2s reply)</option>
+                    <option value="deep">🧠 Deep Thinking Mode (Extended reasoning)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="metric-row" style="margin-top: 12px;">
+                <span>Active Tanglish Dialect Lexicon:</span>
+                <div class="tag-list" id="tanglishLexiconTags">
+                  <span class="tag">chellam</span>
+                  <span class="tag">thangom</span>
+                  <span class="tag">sapdiya?</span>
+                  <span class="tag">epdi irukka?</span>
+                  <span class="tag">seri vidu</span>
+                  <span class="tag">sema</span>
+                  <span class="tag">pakka</span>
+                  <span class="tag">on the way vandhute irukken</span>
+                </div>
+              </div>
+
+              <div style="margin-top: 12px; display: flex; gap: 10px;">
+                <button class="btn btn-primary" id="btnSaveLanguageSettings"><i data-lucide="save"></i> Save Language Preferences</button>
+              </div>
+            </div>
+
+            <!-- Voice & Audio Rhythm Studio (ASR & TTS with Emotion) -->
+            <div class="glass-card voice-studio-section" style="grid-column: 1 / -1; margin-top: 16px;">
+              <div class="col-header">
+                <h3><i data-lucide="volume-2"></i> Voice & Audio Rhythm Studio (ASR & TTS)</h3>
+                <span class="badge" id="badgeActiveVoice">Emotion: Warm & Affectionate</span>
+              </div>
+              <p class="text-muted text-sm">Tune your personal Voice Rhythm, Speech Tempo, and Emotion Inflection for Text-to-Speech (TTS) and Speech-to-Text (ASR).</p>
+
+              <div class="settings-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-top: 12px;">
+                <div class="form-group">
+                  <label>Emotion Inflection Preset</label>
+                  <select id="voiceEmotionSelect" class="form-control">
+                    <option value="warm" selected>Warm & Affectionate (Spouse / Loved Ones)</option>
+                    <option value="playful">Playful & Banter (Friends / Social)</option>
+                    <option value="calm">Calm & Professional (Work / Support)</option>
+                    <option value="expressive">Energetic & Expressive (Upbeat)</option>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label>Voice Pitch: <strong id="valVoicePitch">1.00x</strong></label>
+                  <input type="range" id="rangeVoicePitch" min="0.5" max="1.5" step="0.05" value="1.0" class="form-range">
+                  <span class="text-xs text-muted">Lower = deeper tone, Higher = lighter/brighter tone</span>
+                </div>
+
+                <div class="form-group">
+                  <label>Speech Rate / Tempo: <strong id="valVoiceRate">1.05x</strong></label>
+                  <input type="range" id="rangeVoiceRate" min="0.6" max="1.8" step="0.05" value="1.05" class="form-range">
+                  <span class="text-xs text-muted">Speaking rhythm and cadence tempo</span>
+                </div>
+
+                <div class="form-group">
+                  <label>Speech Recognition (ASR) Dialect</label>
+                  <select id="voiceAsrLangSelect" class="form-control">
+                    <option value="ta-IN" selected>Tamil (India) - ta-IN (Tanglish ready)</option>
+                    <option value="en-IN">English (India) - en-IN</option>
+                    <option value="en-US">English (US) - en-US</option>
+                    <option value="hi-IN">Hindi (India) - hi-IN</option>
+                    <option value="te-IN">Telugu (India) - te-IN</option>
+                    <option value="ml-IN">Malayalam (India) - ml-IN</option>
+                    <option value="kn-IN">Kannada (India) - kn-IN</option>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label>TTS Synthesizer Voice</label>
+                  <select id="voiceSynthesizerSelect" class="form-control">
+                    <option value="">Default System Voice</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Audio Rhythm Waveform Simulation Preview -->
+              <div class="voice-preview-box" style="margin-top: 16px; padding: 14px; background: rgba(0,0,0,0.25); border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);">
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+                  <div>
+                    <strong>Preview Phrase (Tanglish):</strong>
+                    <span style="color: var(--accent-cyan); margin-left: 6px;">"Hey chellam! 🥰 On the way da, seekiram vandhute irukken!"</span>
+                  </div>
+                  <div style="display: flex; gap: 10px;">
+                    <button class="btn btn-outline" id="btnTestVoice"><i data-lucide="play"></i> Test Voice Rhythm & Emotion</button>
+                    <button class="btn btn-primary" id="btnSaveVoiceSettings"><i data-lucide="save"></i> Save Voice Studio</button>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -788,6 +1011,43 @@
 
                 <div class="integration-actions">
                   <button class="btn btn-primary" id="btnVerifyTgToken"><i data-lucide="link"></i> Verify & Connect Token</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Signal Messenger Card -->
+            <div class="glass-card integration-card">
+              <div class="integration-header">
+                <div class="integration-icon signal-bg"><i data-lucide="shield-check"></i></div>
+                <div>
+                  <h4>Signal Messenger</h4>
+                  <span class="text-muted text-sm">Link via Signal App QR code or signal-cli daemon</span>
+                </div>
+                <span class="status-badge" id="signalStatusBadge">Disconnected</span>
+              </div>
+
+              <div class="integration-body">
+                <div class="qr-box" id="signalQrBox">
+                  <div class="qr-placeholder" id="signalQrPlaceholder">
+                    <i data-lucide="qr-code"></i>
+                    <p>Click below to generate Signal Linking Device QR</p>
+                  </div>
+                </div>
+
+                <div class="form-group" style="margin-top: 12px;">
+                  <label>Signal Phone / Account Number</label>
+                  <input type="text" id="signalPhoneInput" placeholder="+91 98765 43210" value="+91 98765 43210">
+                </div>
+
+                <div class="form-group">
+                  <label>Signal REST / CLI Daemon Endpoint</label>
+                  <input type="text" id="signalEndpointInput" placeholder="http://127.0.0.1:8080" value="http://127.0.0.1:8080">
+                </div>
+
+                <div class="integration-actions">
+                  <button class="btn btn-primary" id="btnGenerateSignalQR"><i data-lucide="qr-code"></i> Link Signal Device</button>
+                  <button class="btn btn-outline" id="btnConnectSignal"><i data-lucide="check-circle"></i> Quick Connect</button>
+                  <button class="btn btn-danger hidden" id="btnDisconnectSignal"><i data-lucide="power"></i> Disconnect</button>
                 </div>
               </div>
             </div>

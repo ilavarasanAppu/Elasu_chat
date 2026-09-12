@@ -1,3 +1,4 @@
+const QRCode = require('qrcode');
 const { getAsync, runAsync, allAsync } = require('../db/database');
 
 class WhatsAppService {
@@ -16,13 +17,24 @@ class WhatsAppService {
     };
   }
 
-  generateMockQR() {
+  async generateMockQR() {
     this.status = 'pairing';
-    // Base64 sample SVG QR placeholder
     this.qrCodeData = `2@GHOSTREPLY_WA_SESSION_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+    let qrDataUrl = '';
+    try {
+      qrDataUrl = await QRCode.toDataURL(this.qrCodeData, {
+        errorCorrectionLevel: 'M',
+        type: 'image/png',
+        width: 260,
+        margin: 2
+      });
+    } catch (e) {
+      console.error('[WhatsAppService] Error generating QR:', e);
+    }
     return {
       status: this.status,
       qrCode: this.qrCodeData,
+      qrDataUrl,
       message: 'Scan the QR code in WhatsApp on your phone (Linked Devices).'
     };
   }

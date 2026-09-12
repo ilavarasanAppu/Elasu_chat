@@ -10,6 +10,10 @@ class DecisionEngine {
 
   registerWebSocket(ws) {
     this.wsClients.add(ws);
+    ws.on('error', (err) => {
+      console.warn('[WebSocket] Client socket error:', err.message);
+      this.wsClients.delete(ws);
+    });
     ws.on('close', () => {
       this.wsClients.delete(ws);
     });
@@ -122,11 +126,18 @@ class DecisionEngine {
     let max_tokens = 250;
     let retrievedDocs = [];
     let profile = null;
-    const recentHistory = await allAsync(
-      `SELECT direction, sender_name, text, timestamp FROM messages WHERE contact_id = ? ORDER BY timestamp DESC LIMIT 12`,
-      [contact.id]
+    const recentHistoryRaw = await allAsync(
+      `SELECT id, direction, sender_name, text, timestamp FROM messages WHERE contact_id = ? AND id != ? ORDER BY timestamp DESC LIMIT 10`,
+      [contact.id, messageId]
     );
-    recentHistory.reverse();
+    recentHistoryRaw.reverse();
+    const recentHistory = recentHistoryRaw.map(h => ({
+      role: h.direction === 'incoming' ? 'user' : 'assistant',
+      sender_name: h.sender_name,
+      text: personalityService.cleanHumanReply(h.text, profile || {}),
+      content: personalityService.cleanHumanReply(h.text, profile || {}),
+      timestamp: h.timestamp
+    }));
 
     if (mode === 'professional') {
       // Professional Mode RAG Query
@@ -137,7 +148,7 @@ class DecisionEngine {
         userQuestion: text
       });
       temperature = 0.3; // Low temperature for high factual accuracy
-      max_tokens = 400;
+      max_tokens = 800;
 
       this.broadcast('reasoning_trace', {
         contactId: contact.id,
@@ -153,15 +164,21 @@ class DecisionEngine {
         profile = personalityService.getDefaultProfile();
       }
 
+      const preferredLanguage = settings.preferred_language || 'tanglish';
+      profile.preferred_language = preferredLanguage;
+
       systemPrompt = personalityService.buildPersonalPrompt({
         userName: settings.user_name || 'Alex Mercer',
         contactName: contact.name,
         profile,
-        recentHistory,
-        incomingMessage: text
+        preferredLanguage,
+        codeSwitchingRatio: settings.code_switching_ratio || '98'
       });
-      temperature = 0.75; // Higher temperature for expressive creative mirroring
-      max_tokens = 150;
+
+      // Quick Answer Reply Optimization
+      const isQuickMode = (settings.response_speed_mode || 'quick') === 'quick';
+      temperature = 0.75;
+      max_tokens = isQuickMode ? 120 : 800;
 
       this.broadcast('reasoning_trace', {
         contactId: contact.id,
@@ -169,6 +186,8 @@ class DecisionEngine {
         formality: profile.formality_level,
         humor: profile.humor_type,
         relationship: contact.relationship_type,
+        language: preferredLanguage,
+        speedMode: isQuickMode ? 'quick' : 'deep',
         systemPromptSnippet: systemPrompt.substring(0, 200) + '...'
       });
     }
@@ -181,6 +200,7 @@ class DecisionEngine {
     });
 
     // 6. Generate Response via LLM Multi-Provider
+    const isQuickMode = (settings.response_speed_mode || 'quick') === 'quick';
     const llmResult = await llmService.generateResponse({
       system: systemPrompt,
       user: text,
@@ -190,21 +210,26 @@ class DecisionEngine {
       mode,
       extraContext: {
         retrievedDocs,
-        relationshipType: contact.relationship_type
+        relationshipType: contact.relationship_type,
+        isQuickMode
       }
     });
 
     let rawReply = llmResult.text;
     let finalReply = rawReply;
 
-    // 7. Post-Processing & Texting Quirks (Personal Mode)
+    // 7. Post-Processing & Texting Quirks
     if (mode === 'personal') {
       finalReply = personalityService.applyTextingQuirks(rawReply, profile);
+    } else {
+      finalReply = personalityService.cleanHumanReply(rawReply, profile);
     }
 
-    // 8. Natural Human Delay Simulation
+    // 8. Natural Human Delay Simulation (Bypassed / Minimized in Quick Answer Mode)
     let delayMs = 1200;
-    if (contact.delay_mode === 'immediate') {
+    if (isQuickMode) {
+      delayMs = 200; // Instant response in quick mode
+    } else if (contact.delay_mode === 'immediate') {
       delayMs = 600;
     } else if (contact.delay_mode === 'delayed') {
       delayMs = (contact.delay_seconds || 5) * 1000;
@@ -214,8 +239,10 @@ class DecisionEngine {
     }
 
     // Respect natural delay multiplier from settings
-    const multiplier = parseFloat(settings.natural_delay_multiplier || '1.0');
-    delayMs = Math.max(500, Math.min(10000, Math.round(delayMs * multiplier)));
+    if (!isQuickMode) {
+      const multiplier = parseFloat(settings.natural_delay_multiplier || '1.0');
+      delayMs = Math.max(300, Math.min(10000, Math.round(delayMs * multiplier)));
+    }
 
     await new Promise(resolve => setTimeout(resolve, delayMs));
 
@@ -227,7 +254,9 @@ class DecisionEngine {
       durationMs: Date.now() - startTime,
       delaySimulatedMs: delayMs,
       retrievedChunks: retrievedDocs.length,
-      mode
+      mode,
+      isFallback: llmResult.isFallback || false,
+      error: llmResult.error || null
     });
 
     await runAsync(
@@ -248,10 +277,23 @@ class DecisionEngine {
       mode,
       provider: llmResult.provider,
       model: llmResult.model,
+      isFallback: llmResult.isFallback || false,
+      error: llmResult.error || null,
       processingTimeMs: Date.now() - startTime,
       delaySimulatedMs: delayMs,
       timestamp: new Date().toISOString()
     };
+
+    // If a fallback occurred, notify listeners with error details
+    if (llmResult.isFallback) {
+      this.broadcast('provider_fallback_warning', {
+        contactId: contact.id,
+        contactName: contact.name,
+        provider: llmResult.provider,
+        error: llmResult.error,
+        model: llmResult.model
+      });
+    }
 
     // Broadcast message sent
     this.broadcast('message_sent', resultPayload);

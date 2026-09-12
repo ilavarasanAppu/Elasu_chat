@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { getAsync, allAsync } = require('../db/database');
+const { getAsync, allAsync, runAsync } = require('../db/database');
 
 class LLMService {
   async getSettings() {
@@ -9,6 +9,19 @@ class LLMService {
       settings[r.key] = r.value;
     });
     return settings;
+  }
+
+  /**
+   * Helper to strip thinking/thought tags from text
+   */
+  cleanOutput(raw) {
+    if (!raw) return '';
+    let text = raw.trim();
+    text = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    text = text.replace(/<thought>[\s\S]*?<\/thought>/gi, '').trim();
+    text = text.replace(/<think>[\s\S]*$/gi, '').trim();
+    text = text.replace(/<thought>[\s\S]*$/gi, '').trim();
+    return text;
   }
 
   /**
@@ -27,28 +40,40 @@ class LLMService {
     const provider = settings.active_provider || 'mock';
 
     try {
+      let res;
       switch (provider.toLowerCase()) {
         case 'ollama':
-          return await this.callOllama({ system, user, history, temperature, max_tokens, settings });
+          res = await this.callOllama({ system, user, history, temperature, max_tokens, settings, extraContext });
+          break;
         case 'lmstudio':
-          return await this.callLMStudio({ system, user, history, temperature, max_tokens, settings });
+          res = await this.callLMStudio({ system, user, history, temperature, max_tokens, settings });
+          break;
         case 'openai':
-          return await this.callOpenAI({ system, user, history, temperature, max_tokens, settings });
+          res = await this.callOpenAI({ system, user, history, temperature, max_tokens, settings });
+          break;
         case 'gemini':
-          return await this.callGemini({ system, user, history, temperature, max_tokens, settings });
+          res = await this.callGemini({ system, user, history, temperature, max_tokens, settings });
+          break;
         case 'openrouter':
-          return await this.callOpenRouter({ system, user, history, temperature, max_tokens, settings });
+          res = await this.callOpenRouter({ system, user, history, temperature, max_tokens, settings });
+          break;
         case 'nvidia':
-          return await this.callNvidia({ system, user, history, temperature, max_tokens, settings });
+          res = await this.callNvidia({ system, user, history, temperature, max_tokens, settings });
+          break;
         case 'mock':
         default:
-          return await this.callSmartMock({ system, user, history, mode, extraContext });
+          res = await this.callSmartMock({ system, user, history, mode, extraContext, settings });
+          break;
       }
+      return {
+        ...res,
+        text: this.cleanOutput(res.text)
+      };
     } catch (err) {
       console.warn(`[LLMService] Provider ${provider} failed (${err.message}). Falling back to Smart Fallback Engine...`);
-      const fallbackResponse = await this.callSmartMock({ system, user, history, mode, extraContext });
+      const fallbackResponse = await this.callSmartMock({ system, user, history, mode, extraContext, settings });
       return {
-        text: fallbackResponse.text,
+        text: this.cleanOutput(fallbackResponse.text),
         provider: `${provider} (Fallback: ${err.message})`,
         model: 'smart-fallback',
         isFallback: true,
@@ -57,27 +82,128 @@ class LLMService {
     }
   }
 
-  // 1. Ollama Integration (Supports OpenAI compatible endpoint and native)
-  async callOllama({ system, user, history, temperature, max_tokens, settings }) {
+  // 1. Ollama Integration (Supports OpenAI compatible endpoint and native /api/chat)
+  async callOllama({ system, user, history, temperature, max_tokens, settings, extraContext = {} }) {
     let endpoint = (settings.ollama_endpoint || 'http://127.0.0.1:11434').trim().replace(/\/$/, '');
-    const model = settings.ollama_model || 'llama3.2:latest';
+    let model = settings.ollama_model || 'llama3.2:latest';
     
     // Construct messages array
     const messages = [{ role: 'system', content: system }];
     history.forEach(h => messages.push({ role: h.role || (h.direction === 'incoming' ? 'user' : 'assistant'), content: h.text || h.content }));
     messages.push({ role: 'user', content: user });
 
-    const targetUrl = endpoint.endsWith('/v1') ? `${endpoint}/chat/completions` : `${endpoint}/v1/chat/completions`;
+    // Quick Answer Reply Optimization: fast timeout so user doesn't wait minutes if remote cloud model is queueing
+    const isQuickMode = (settings.response_speed_mode || 'quick') === 'quick' || extraContext.isQuickMode;
+    const requestTimeout = isQuickMode ? 4000 : 60000;
+    const numPredict = isQuickMode ? Math.min(max_tokens || 80, 80) : (max_tokens || 150);
 
-    const res = await axios.post(targetUrl, {
-      model,
-      messages,
-      temperature,
-      max_tokens
-    }, { timeout: 30000 });
+    // Function to query available installed models from Ollama /api/tags
+    const getInstalledModels = async () => {
+      try {
+        const baseEp = endpoint.replace(/\/v1$/, '');
+        const res = await axios.get(`${baseEp}/api/tags`, { timeout: 4000 });
+        return (res.data?.models || []).map(m => m.name);
+      } catch {
+        return [];
+      }
+    };
 
-    const reply = res.data?.choices?.[0]?.message?.content || '';
-    return { text: reply.trim(), provider: 'Ollama', model };
+    // Helper to strip thinking tags from text
+    const cleanOutput = (raw) => {
+      if (!raw) return '';
+      let text = raw.trim();
+      text = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+      text = text.replace(/<thought>[\s\S]*?<\/thought>/gi, '').trim();
+      return text;
+    };
+
+    // Helper to attempt inference via native Ollama /api/chat (Primary & Cleanest for Ollama)
+    const tryNativeChatEndpoint = async (targetModel) => {
+      const baseEp = endpoint.replace(/\/v1$/, '');
+      const targetUrl = `${baseEp}/api/chat`;
+      const res = await axios.post(targetUrl, {
+        model: targetModel,
+        messages,
+        stream: false,
+        options: {
+          temperature,
+          num_predict: numPredict
+        }
+      }, { timeout: requestTimeout });
+
+      const msg = res.data?.message;
+      let content = cleanOutput(msg?.content || '');
+      return content.trim();
+    };
+
+    // Helper to attempt inference via OpenAI-compatible endpoint (Fallback)
+    const tryOpenAIEndpoint = async (targetModel) => {
+      const baseEp = endpoint.replace(/\/v1$/, '');
+      const targetUrl = `${baseEp}/v1/chat/completions`;
+      const res = await axios.post(targetUrl, {
+        model: targetModel,
+        messages,
+        temperature,
+        max_tokens: numPredict,
+        stream: false
+      }, { timeout: requestTimeout });
+
+      const choiceMsg = res.data?.choices?.[0]?.message;
+      let content = cleanOutput(choiceMsg?.content || '');
+      return content.trim();
+    };
+
+    try {
+      // Primary: Native Ollama /api/chat (properly isolates content from thinking)
+      let reply = '';
+      try {
+        reply = await tryNativeChatEndpoint(model);
+      } catch (nativeErr) {
+        if (nativeErr.response?.status === 404) throw nativeErr;
+        // If native endpoint encounters format error, try OpenAI-compatible endpoint
+        reply = await tryOpenAIEndpoint(model);
+      }
+
+      if (!reply) {
+        reply = await tryOpenAIEndpoint(model);
+      }
+
+      if (!reply) {
+        throw new Error('Ollama model produced empty response');
+      }
+
+      return { text: reply, provider: 'Ollama', model };
+    } catch (err) {
+      const is404 = err.response && (err.response.status === 404 || (err.response.data && JSON.stringify(err.response.data).includes('not found')));
+
+      if (is404) {
+        console.warn(`[LLMService] Ollama model "${model}" not found (404). Checking installed models...`);
+        const installed = await getInstalledModels();
+        if (installed.length > 0) {
+          const fallbackModel = installed[0];
+          console.log(`[LLMService] Auto-switching Ollama model from "${model}" to installed model "${fallbackModel}"...`);
+          // Save auto-discovered model to DB settings so future calls use it directly
+          try {
+            await runAsync(`UPDATE settings SET value = ? WHERE key = 'ollama_model'`, [fallbackModel]);
+          } catch (dbErr) {
+            console.warn('[LLMService] Could not update settings for auto-switched model:', dbErr.message);
+          }
+
+          let reply = '';
+          try {
+            reply = await tryNativeChatEndpoint(fallbackModel);
+          } catch {
+            reply = await tryOpenAIEndpoint(fallbackModel);
+          }
+
+          if (reply) {
+            return { text: reply, provider: 'Ollama', model: fallbackModel };
+          }
+        }
+      }
+
+      throw err;
+    }
   }
 
   // 2. LM Studio Integration (OpenAI Compatible)
@@ -96,7 +222,7 @@ class LLMService {
       messages,
       temperature,
       max_tokens
-    }, { timeout: 30000 });
+    }, { timeout: 60000 });
 
     const reply = res.data?.choices?.[0]?.message?.content || '';
     return { text: reply.trim(), provider: 'LM Studio', model };
@@ -128,7 +254,7 @@ class LLMService {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       },
-      timeout: 35000
+      timeout: 60000
     });
 
     const reply = res.data?.choices?.[0]?.message?.content || '';
@@ -178,7 +304,7 @@ class LLMService {
 
     const res = await axios.post(url, payload, {
       headers: { 'Content-Type': 'application/json' },
-      timeout: 35000
+      timeout: 60000
     });
 
     const reply = res.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
@@ -210,7 +336,7 @@ class LLMService {
         'X-Title': 'GhostReply Dual-Mode Assistant',
         'Content-Type': 'application/json'
       },
-      timeout: 40000
+      timeout: 60000
     });
 
     const reply = res.data?.choices?.[0]?.message?.content || '';
@@ -243,7 +369,7 @@ class LLMService {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       },
-      timeout: 40000
+      timeout: 60000
     });
 
     const reply = res.data?.choices?.[0]?.message?.content || '';
@@ -251,8 +377,9 @@ class LLMService {
   }
 
   // 7. Context-Aware Smart Fallback Generator (Instant simulation & testing)
-  async callSmartMock({ system, user, history, mode, extraContext = {} }) {
+  async callSmartMock({ system, user, history, mode, extraContext = {}, settings = {} }) {
     const lowerUser = (user || '').toLowerCase();
+    const preferredLanguage = settings.preferred_language || 'tanglish';
 
     if (mode === 'professional') {
       // Professional Mode intelligent generator
@@ -295,6 +422,70 @@ class LLMService {
       // Personal Mode Persona Mirroring
       const relation = extraContext.relationshipType || 'friend';
 
+      if (preferredLanguage === 'tanglish') {
+        if (relation === 'spouse' || relation === 'partner' || relation.includes('wife')) {
+          if (lowerUser.includes('home') || lowerUser.includes('where') || lowerUser.includes('coming') || lowerUser.includes('vandh')) {
+            return {
+              text: "on the way vandhute irukken da chellam! reach aagidren in 10 mins 🥰❤️",
+              provider: "Smart Fallback Engine",
+              model: "persona-mirror-engine"
+            };
+          } else if (lowerUser.includes('dinner') || lowerUser.includes('food') || lowerUser.includes('eat') || lowerUser.includes('sapdi') || lowerUser.includes('taco')) {
+            return {
+              text: "omggg yesss! innaiku nalla food order panlama chellam? sema craving irukku 😋🥰",
+              provider: "Smart Fallback Engine",
+              model: "persona-mirror-engine"
+            };
+          } else if (lowerUser.includes('office') || lowerUser.includes('work') || lowerUser.includes('busy')) {
+            return {
+              text: "office la sema work da chellam, wrapping this up right now and heading over to u ❤️🥰",
+              provider: "Smart Fallback Engine",
+              model: "persona-mirror-engine"
+            };
+          } else if (lowerUser.includes('enna pandre') || lowerUser.includes('what doing') || lowerUser.includes('sup') || lowerUser.includes('hai') || lowerUser.includes('hey')) {
+            return {
+              text: "konjam work da chellam, but almost done! nee sapdiya? what u thinking? 🥰",
+              provider: "Smart Fallback Engine",
+              model: "persona-mirror-engine"
+            };
+          } else {
+            return {
+              text: "got it chellam ❤️ wrapping this up rn and coming over to u 🥰",
+              provider: "Smart Fallback Engine",
+              model: "persona-mirror-engine"
+            };
+          }
+        } else {
+          // Friend / Bro / Casual Tanglish
+          if (lowerUser.includes('party') || lowerUser.includes('weekend') || lowerUser.includes('meet') || lowerUser.includes('innaiki')) {
+            return {
+              text: "sema machi! innaiki evening kandippa meet pannuvom 🔥😂",
+              provider: "Smart Fallback Engine",
+              model: "persona-mirror-engine"
+            };
+          } else if (lowerUser.includes('game') || lowerUser.includes('play') || lowerUser.includes('hop on') || lowerUser.includes('discord')) {
+            return {
+              text: "seri da machi, 10 mins la login panren, waiting la iru 🎮🔥",
+              provider: "Smart Fallback Engine",
+              model: "persona-mirror-engine"
+            };
+          } else if (lowerUser.includes('work') || lowerUser.includes('office') || lowerUser.includes('busy')) {
+            return {
+              text: "office la sema headache da machi 😭 mudinjathum call panren",
+              provider: "Smart Fallback Engine",
+              model: "persona-mirror-engine"
+            };
+          } else {
+            return {
+              text: "machan sema da! 😂 apram enna vishayam? epdi poguthu?",
+              provider: "Smart Fallback Engine",
+              model: "persona-mirror-engine"
+            };
+          }
+        }
+      }
+
+      // Default Global English fallback
       if (relation === 'spouse' || relation === 'partner') {
         if (lowerUser.includes('home') || lowerUser.includes('where') || lowerUser.includes('coming')) {
           return {
@@ -415,6 +606,111 @@ class LLMService {
       }
     } catch (err) {
       return { success: false, message: `Connection test failed: ${err.message}` };
+    }
+  }
+  // Fetch available models list from any provider for dropdown population
+  async fetchModels(provider, customConfig = {}) {
+    const settings = await this.getSettings();
+    const active = { ...settings, ...customConfig };
+
+    try {
+      switch (provider.toLowerCase()) {
+        case 'ollama': {
+          let ep = (active.ollama_endpoint || 'http://127.0.0.1:11434').trim().replace(/\/$/, '');
+          const res = await axios.get(`${ep}/api/tags`, { timeout: 8000 });
+          const models = (res.data?.models || []).map(m => ({
+            id: m.name,
+            name: m.name,
+            size: m.size ? `${(m.size / 1e9).toFixed(1)}GB` : null
+          }));
+          return { success: true, models, message: `Found ${models.length} models` };
+        }
+        case 'lmstudio': {
+          let ep = (active.lmstudio_endpoint || 'http://127.0.0.1:1234/v1').trim().replace(/\/$/, '');
+          const res = await axios.get(`${ep}/models`, { timeout: 8000 });
+          const models = (res.data?.data || []).map(m => ({
+            id: m.id,
+            name: m.id,
+            owned_by: m.owned_by || null
+          }));
+          return { success: true, models, message: `Found ${models.length} models` };
+        }
+        case 'openai': {
+          let ep = (active.openai_endpoint || 'https://api.openai.com/v1').trim().replace(/\/$/, '');
+          const apiKey = active.openai_api_key;
+          if (!apiKey && !ep.includes('localhost') && !ep.includes('127.0.0.1')) {
+            return { success: false, message: 'API key required', models: [] };
+          }
+          const headers = apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {};
+          const res = await axios.get(`${ep}/models`, { headers, timeout: 10000 });
+          const rawModels = res.data?.data || [];
+          const models = rawModels
+            .filter(m => m.id && !m.id.includes('embedding') && !m.id.includes('tts') && !m.id.includes('whisper') && !m.id.includes('dall-e'))
+            .sort((a, b) => (a.id || '').localeCompare(b.id || ''))
+            .map(m => ({
+              id: m.id,
+              name: m.id,
+              owned_by: m.owned_by || null
+            }));
+          return { success: true, models, message: `Found ${models.length} chat models` };
+        }
+        case 'gemini': {
+          const apiKey = active.gemini_api_key;
+          if (!apiKey) return { success: false, message: 'Gemini API key required', models: [] };
+          const res = await axios.get(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`, { timeout: 10000 });
+          const rawModels = res.data?.models || [];
+          const models = rawModels
+            .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent'))
+            .map(m => ({
+              id: m.name.replace('models/', ''),
+              name: m.displayName || m.name.replace('models/', ''),
+              description: m.description || null
+            }));
+          return { success: true, models, message: `Found ${models.length} generative models` };
+        }
+        case 'openrouter': {
+          const apiKey = active.openrouter_api_key;
+          if (!apiKey) return { success: false, message: 'OpenRouter API key required', models: [] };
+          const res = await axios.get('https://openrouter.ai/api/v1/models', {
+            headers: { 'Authorization': `Bearer ${apiKey}` },
+            timeout: 10000
+          });
+          const rawModels = res.data?.data || [];
+          const models = rawModels
+            .sort((a, b) => (a.id || '').localeCompare(b.id || ''))
+            .map(m => ({
+              id: m.id,
+              name: m.name || m.id,
+              context_length: m.context_length || null,
+              pricing: m.pricing ? `$${m.pricing.prompt}/prompt` : null
+            }));
+          return { success: true, models, message: `Found ${models.length} models` };
+        }
+        case 'nvidia': {
+          const apiKey = active.nvidia_api_key;
+          if (!apiKey) return { success: false, message: 'NVIDIA API key required', models: [] };
+          let ep = (active.nvidia_endpoint || 'https://integrate.api.nvidia.com/v1').trim().replace(/\/$/, '');
+          const res = await axios.get(`${ep}/models`, {
+            headers: { 'Authorization': `Bearer ${apiKey}` },
+            timeout: 10000
+          });
+          const models = (res.data?.data || []).map(m => ({
+            id: m.id,
+            name: m.id,
+            owned_by: m.owned_by || null
+          }));
+          return { success: true, models, message: `Found ${models.length} models` };
+        }
+        case 'mock':
+        default:
+          return { success: true, models: [
+            { id: 'smart-fallback', name: 'Smart Fallback Engine' },
+            { id: 'persona-mirror-engine', name: 'Persona Mirror (Personal)' },
+            { id: 'professional-rag-engine', name: 'Professional RAG Engine' }
+          ], message: 'Built-in fallback models' };
+      }
+    } catch (err) {
+      return { success: false, message: `Failed to fetch models: ${err.message}`, models: [] };
     }
   }
 }

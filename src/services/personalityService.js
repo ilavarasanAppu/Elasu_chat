@@ -271,64 +271,256 @@ class PersonalityService {
   }
 
   /**
-   * Build Personal Mode System Prompt
+   * Build Personal Mode System Prompt with Tanglish & Multi-Language Support
    */
-  buildPersonalPrompt({ userName = 'Alex', contactName = 'Friend', profile = {}, recentHistory = [], incomingMessage = '' }) {
+  buildPersonalPrompt({ userName = 'Alex', contactName = 'Friend', profile = {}, preferredLanguage = 'tanglish', codeSwitchingRatio = '98' }) {
     const abbrevMap = typeof profile.abbreviation_map === 'string' ? JSON.parse(profile.abbreviation_map || '{}') : (profile.abbreviation_map || {});
     const excitement = typeof profile.excitement_markers === 'string' ? JSON.parse(profile.excitement_markers || '[]') : (profile.excitement_markers || []);
     const emojis = typeof profile.favorite_emojis === 'string' ? JSON.parse(profile.favorite_emojis || '[]') : (profile.favorite_emojis || []);
     const jokes = typeof profile.inside_jokes === 'string' ? JSON.parse(profile.inside_jokes || '[]') : (profile.inside_jokes || []);
     const fewShot = typeof profile.few_shot_examples === 'string' ? JSON.parse(profile.few_shot_examples || '[]') : (profile.few_shot_examples || []);
 
+    const lang = (preferredLanguage || profile.primary_language || 'tanglish').toLowerCase();
+
+    let languageInstructions = '';
+    if (lang === 'tanglish') {
+      languageInstructions = `
+═══════════════════════════════════════════════════════════════════
+        CRITICAL MANDATORY LANGUAGE: TANGLISH (98% TAMIL + ENGLISH)
+═══════════════════════════════════════════════════════════════════
+• 98% of your chat response MUST be in TANGLISH (Tamil spoken colloquial language written in English alphabet mixed naturally with English words).
+• DO NOT write purely in English. Speak exactly how real Tamilians text on WhatsApp, Signal, and Instagram.
+• Real Tanglish Vocabulary & Expressions to use naturally:
+  - Intimacy & Affection (for wife/spouse): "chellam", "thangom", "babe", "pattu", "love u", "on the way vandhute irukken 🥰", "seekiram vandhudren"
+  - Inquiries & Care: "sapdiya?", "enna pandre?", "epdi irukka?", "enga irukka?", "innaiku dinner ku enna plan?"
+  - Casual & Banter: "seri vidu", "seri da", "sema", "pakka", "mudila", "aama", "illa", "aprom peslam", "office la romba work da"
+  - Excitement & Fillers: "omggg", "yesss", "da", "di", "pa", "vera level", "super"
+• Examples of Natural Tanglish Replies:
+  - "hey chellam 🥰 just heading home now! innaiku dinner ku enna plan?"
+  - "sapten da! work mudinjidhu, on the way vandhute irukken ❤️"
+  - "haha seri vidu 😂 aprom namma peslam!"
+  - "omggg sema! wait panren da"`;
+    } else if (lang === 'hinglish') {
+      languageInstructions = `
+═══════════════════════════════════════════════════════════════════
+        CRITICAL MANDATORY LANGUAGE: HINGLISH (HINDI + ENGLISH)
+═══════════════════════════════════════════════════════════════════
+• Reply in natural conversational HINGLISH (Hindi written in English alphabet mixed with English).
+• Real expressions: "kya chal raha hai", "theek hoon", "haan yaar", "abhi thoda busy hoon, baad mein baat karte hain", "sahi hai", "pakka".`;
+    } else if (lang === 'tenglish') {
+      languageInstructions = `
+═══════════════════════════════════════════════════════════════════
+        CRITICAL MANDATORY LANGUAGE: TENGLISH (TELUGU + ENGLISH)
+═══════════════════════════════════════════════════════════════════
+• Reply in natural conversational TENGLISH (Telugu written in English script mixed with English).
+• Real expressions: "ela unnavu", "lunch aindha", "nenu on the way unna", "seri cheppu", "vastunna".`;
+    } else if (lang === 'manglish') {
+      languageInstructions = `
+═══════════════════════════════════════════════════════════════════
+        CRITICAL MANDATORY LANGUAGE: MANGLISH (MALAYALAM + ENGLISH)
+═══════════════════════════════════════════════════════════════════
+• Reply in natural conversational MANGLISH (Malayalam in English script mixed with English).
+• Real expressions: "sugam aano", "food kazhicho", "njan ippo varam", "sheriyaada", "entha vishesham".`;
+    } else if (lang === 'kanglish') {
+      languageInstructions = `
+═══════════════════════════════════════════════════════════════════
+        CRITICAL MANDATORY LANGUAGE: KANGLISH (KANNADA + ENGLISH)
+═══════════════════════════════════════════════════════════════════
+• Reply in natural conversational KANGLISH (Kannada in English script mixed with English).
+• Real expressions: "hegiddira", "oota aitha", "naanu barteeni", "en samachara", "houda".`;
+    } else if (lang === 'tamil') {
+      languageInstructions = `
+═══════════════════════════════════════════════════════════════════
+        CRITICAL MANDATORY LANGUAGE: TAMIL (தமிழ் எழுத்து)
+═══════════════════════════════════════════════════════════════════
+• Reply in casual conversational Tamil script (தமிழ்) mixed with natural emoji.`;
+    } else {
+      languageInstructions = `
+═══════════════════════════════════════════════════════════════════
+        CRITICAL MANDATORY LANGUAGE: CASUAL ENGLISH
+═══════════════════════════════════════════════════════════════════
+• Reply in casual modern English SMS texting style.`;
+    }
+
     let fewShotFormatted = '';
     if (fewShot.length > 0) {
-      fewShotFormatted = `\nREAL CONVERSATION EXAMPLES (MATCH THIS EXACT STYLE):\n` +
+      fewShotFormatted = `\nREAL CONVERSATION EXAMPLES (MATCH THIS EXACT CASUAL HUMAN STYLE):\n` +
         fewShot.map(f => `Incoming: "${f.incoming}"\nYour Response: "${f.outgoing}"`).join('\n\n');
     }
 
-    let historyFormatted = '';
-    if (recentHistory.length > 0) {
-      historyFormatted = `\nRECENT CONVERSATION HISTORY:\n` +
-        recentHistory.slice(-8).map(h => `${h.sender_name || (h.direction === 'incoming' ? contactName : userName)}: ${h.text || h.content}`).join('\n');
-    }
+    return `You are "${userName}" texting "${contactName}" on personal chat.
 
-    return `You are "${userName}" texting "${contactName}".
-
-CRITICAL RULE: You NEVER reveal you are an AI. You ARE ${userName}. You must mirror ${userName}'s exact personality, typing quirks, and relationship vibe so responses are INDISTINGUISHABLE from the real user.
+CRITICAL IDENTITY: You NEVER reveal you are an AI. You ARE ${userName}. You must mirror ${userName}'s exact personality, texting quirks, brevity, and relationship vibe.
 
 ═══════════════════════════════════════════════════════════════════
-                    YOUR TEXTING PROFILE FOR THIS CONTACT
+                    TEXTING PROFILE FOR THIS CONTACT
 ═══════════════════════════════════════════════════════════════════
 - Formality Score: ${profile.formality_level || 0.2}/1.0 (${profile.formality_level < 0.3 ? 'Very Casual / Slang' : 'Moderate / Friendly'})
-- Average Message Length: ~${profile.avg_message_length || 7} words (Keep responses concise and punchy!)
+- Average Message Length: ~${profile.avg_message_length || 7} words (Keep responses concise, casual, like a real text message!)
 - Common Abbreviations: ${JSON.stringify(abbrevMap)}
 - Excitement Markers: ${excitement.slice(0, 3).join(', ') || 'yooo, fr fr'}
 - Favorite Emojis: ${emojis.slice(0, 4).join(' ') || '😂 💀 🔥'} (Emoji frequency: ${Math.round((profile.emoji_frequency || 0.7) * 100)}%)
 - Relationship Vibe: ${profile.relationship_type || 'friend'} (${profile.humor_type || 'playful banter'})
 - Shared References / Jokes: ${jokes.join(', ') || 'shared memories'}
+${languageInstructions}
 
 ═══════════════════════════════════════════════════════════════════
-                    RESPONSE RULES
+                    CRITICAL RESPONSE RULES
 ═══════════════════════════════════════════════════════════════════
-• Reply exactly as ${userName} would in a real text message.
-• Match message length (short, casual, no stiff paragraphs).
-• Use natural lowercase, conversational contractions, and familiar slang.
-• Maintain emotional continuity and intimacy level.
-• Do not include robotic formal greetings (e.g. avoid "Hello there! How may I assist you?") - use real text replies!
+1. Reply exactly as ${userName} would in a quick, natural personal text message.
+2. Respond DIRECTLY to the latest message in the conversation.
+3. Keep it short (1-2 sentences maximum, never long essays).
+4. ABSOLUTE RULE: Output ONLY the exact text message itself.
+5. NEVER output thinking, internal monologue, reasoning, analysis, or meta-commentary.
+6. NEVER explain what you are doing (e.g., do NOT write "The user is saying...", "Looking at the conversation...", "Let me respond as...", or "I should reply...").
+7. Output pure human conversational text only.
 ${fewShotFormatted}
-${historyFormatted}
 
-INCOMING MESSAGE: "${incomingMessage}"
+RESPOND AS ${userName} (ONLY THE TEXT MESSAGE):`;
+  }
 
-RESPOND AS ${userName}:`;
+  /**
+   * Clean AI response by stripping <think> tags, reasoning markers, or thought monologues
+   */
+  cleanHumanReply(rawText, profile = {}) {
+    if (!rawText) return this.getPersonaFallbackReply(profile);
+    let text = rawText.trim();
+
+    // 1. Remove XML/HTML thought tags: <think>...</think>, <thought>...</thought>
+    text = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    text = text.replace(/<thought>[\s\S]*?<\/thought>/gi, '').trim();
+
+    // Strip unclosed thought tags if generation ended mid-thought
+    text = text.replace(/<think>[\s\S]*$/gi, '').trim();
+    text = text.replace(/<thought>[\s\S]*$/gi, '').trim();
+
+    // 2. Strip quotation marks wrapping the whole reply
+    if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
+      text = text.slice(1, -1).trim();
+    }
+
+    // 3. Detect internal reasoning monologue patterns
+    const reasoningKeywords = [
+      'the user is saying',
+      'user is saying',
+      'looking at the conversation',
+      'in response to the first',
+      'in response to the previous',
+      'in response to',
+      'continuous conversation',
+      'i should respond',
+      'i should reply',
+      'let me respond as',
+      'respond as alex',
+      'respond naturally',
+      'as an ai',
+      'my response would be',
+      'let me respond',
+      'internal monologue',
+      'chain of thought',
+      'step by step',
+      'what alex would'
+    ];
+
+    const metaAdjectives = ['short', 'brief', 'concise', 'casual', 'playful', 'friendly', 'quick', 'confused', 'naturally'];
+    const lower = text.toLowerCase();
+    const hasReasoning = reasoningKeywords.some(kw => lower.includes(kw));
+
+    if (hasReasoning) {
+      // Check if a genuine clean message exists after a clear colon or quotes delimiter
+      const delimiterMatch = text.match(/(?:let me respond(?: as [a-z0-9_\s]+)?(?: would)?|i should (?:reply|respond)|my response|response|reply)\s*(?:with|is)?\s*[:]\s*["']?([^"'\n\r]+)["']?$/i);
+      if (delimiterMatch && delimiterMatch[1] && delimiterMatch[1].trim().length > 1) {
+        const extracted = delimiterMatch[1].trim();
+        if (!reasoningKeywords.some(kw => extracted.toLowerCase().includes(kw)) && !metaAdjectives.includes(extracted.toLowerCase())) {
+          text = extracted;
+        } else {
+          text = this.getPersonaFallbackReply(profile);
+        }
+      } else {
+        const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+        let candidate = '';
+        if (lines.length > 1) {
+          const lastLine = lines[lines.length - 1];
+          const lastLineLower = lastLine.toLowerCase();
+          if (!reasoningKeywords.some(kw => lastLineLower.includes(kw)) &&
+              !metaAdjectives.includes(lastLineLower) &&
+              !lastLine.startsWith('*') && !lastLine.startsWith('(') &&
+              lastLine.length > 1 && lastLine.length < 200) {
+            candidate = lastLine.replace(/^["']|["']$/g, '').trim();
+          }
+        }
+
+        if (candidate && !reasoningKeywords.some(kw => candidate.toLowerCase().includes(kw)) && !metaAdjectives.includes(candidate.toLowerCase())) {
+          text = candidate;
+        } else {
+          text = this.getPersonaFallbackReply(profile);
+        }
+      }
+    }
+
+    // 4. Strip leftover prefixes like "Alex: " or "Message: "
+    text = text.replace(/^(?:alex(?:\s*mercer)?|response|reply|message):\s*/i, '').trim();
+
+    if (!text) {
+      return this.getPersonaFallbackReply(profile);
+    }
+
+    return text.trim();
+  }
+
+  getPersonaFallbackReply(profile = {}) {
+    const rel = (profile.relationship_type || '').toLowerCase();
+    const lang = (profile.preferred_language || profile.primary_language || 'tanglish').toLowerCase();
+
+    if (lang === 'tanglish') {
+      if (rel === 'spouse' || rel === 'partner' || rel.includes('wife') || rel.includes('husband')) {
+        const tanglishSpouse = [
+          "hey chellam! 🥰 enna pandre?",
+          "on the way da, seekiram vandhudren 🥰",
+          "hey! ❤️ sapdiya? what u thinking?",
+          "yeah babe! innaiku dinner ku enna plan? 🥰"
+        ];
+        return tanglishSpouse[Math.floor(Math.random() * tanglishSpouse.length)];
+      }
+      if (Number(profile.formality_level || 0) > 0.6) {
+        return "Hello! I will check and update you soon.";
+      }
+      const tanglishFriend = [
+        "yo machi! enna aachu? 😂",
+        "seri da, work mudinjadhum peslam!",
+        "sema bro! what u up to?",
+        "epdi irukka da? all good? 😂"
+      ];
+      return tanglishFriend[Math.floor(Math.random() * tanglishFriend.length)];
+    }
+
+    if (rel === 'spouse' || rel === 'partner' || rel.includes('wife') || rel.includes('husband')) {
+      const spouselist = [
+        "hey! ❤️ what's up?",
+        "yeah babe? 🥰",
+        "hey haha what u thinking? 🥰",
+        "hey! what's going on? ❤️"
+      ];
+      return spouselist[Math.floor(Math.random() * spouselist.length)];
+    }
+    if (Number(profile.formality_level || 0) > 0.6) {
+      return "Hello! How can I assist you?";
+    }
+    const friendlist = [
+      "yo! what's up? 😂",
+      "hey haha what's good?",
+      "yo! what u up to?",
+      "hey! what's going on?"
+    ];
+    return friendlist[Math.floor(Math.random() * friendlist.length)];
   }
 
   /**
    * Post-process generated response with texting quirks & emoji tuning
    */
   applyTextingQuirks(response, profile = {}) {
-    if (!response) return '';
-    let text = response.trim();
+    if (!response) return this.getPersonaFallbackReply(profile);
+    let text = this.cleanHumanReply(response, profile);
 
     // Remove any accidental quotation marks wrapping the whole response
     if (text.startsWith('"') && text.endsWith('"')) {

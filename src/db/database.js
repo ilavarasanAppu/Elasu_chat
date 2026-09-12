@@ -159,17 +159,14 @@ async function initDatabase() {
 }
 
 async function seedDefaultSettings() {
-  const existing = await getAsync(`SELECT COUNT(*) as count FROM settings`);
-  if (existing && existing.count > 0) return;
-
   const defaultSettings = [
-    ['active_provider', 'mock'], // 'ollama', 'lmstudio', 'openai', 'gemini', 'openrouter', 'nvidia', 'mock'
+    ['active_provider', 'ollama'],
     ['user_name', 'Alex Mercer'],
     ['user_persona_title', 'Tech Lead & Founder'],
     
     // Ollama settings
     ['ollama_endpoint', 'http://127.0.0.1:11434'],
-    ['ollama_model', 'llama3.2:latest'],
+    ['ollama_model', 'nemotron-3-ultra:cloud'],
     
     // LM Studio settings
     ['lmstudio_endpoint', 'http://127.0.0.1:1234/v1'],
@@ -196,11 +193,33 @@ async function seedDefaultSettings() {
     // Global Auto-Reply Switch
     ['global_auto_reply', 'true'],
     ['safety_escalation_enabled', 'true'],
-    ['natural_delay_multiplier', '1.0']
+    ['natural_delay_multiplier', '1.0'],
+
+    // Language & Code-Switching (Default: Tanglish Tamil+English 98%)
+    ['preferred_language', 'tanglish'], // 'tanglish', 'english', 'hinglish', 'tenglish', 'manglish', 'kanglish', 'tamil'
+    ['code_switching_ratio', '98'], // 98% mix
+
+    // Response Speed & Token Optimization
+    ['response_speed_mode', 'quick'], // 'quick' (instant/fast sub-2s) or 'deep' (deliberate thinking)
+
+    // Voice Studio (ASR & TTS Voice Rhythm / Emotion)
+    ['voice_pitch', '1.0'],
+    ['voice_rate', '1.05'],
+    ['voice_emotion', 'warm'], // 'warm', 'playful', 'calm', 'expressive'
+    ['voice_timbre', 'default'],
+    ['voice_asr_lang', 'ta-IN'],
+
+    // Signal App Integration
+    ['signal_endpoint', 'http://127.0.0.1:8080'],
+    ['signal_phone_number', ''],
+    ['signal_status', 'disconnected']
   ];
 
   for (const [key, value] of defaultSettings) {
-    await runAsync(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`, [key, value]);
+    const row = await getAsync(`SELECT key FROM settings WHERE key = ?`, [key]);
+    if (!row) {
+      await runAsync(`INSERT INTO settings (key, value) VALUES (?, ?)`, [key, value]);
+    }
   }
 }
 

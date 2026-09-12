@@ -17,10 +17,14 @@ const state = {
 
 // DOM Elements
 const elements = {
-  // Navigation
+  // Navigation & Header AI Toolbar
   navItems: document.querySelectorAll('.nav-item'),
   viewPanels: document.querySelectorAll('.view-panel'),
   currentProviderName: document.getElementById('currentProviderName'),
+  headerProviderSelect: document.getElementById('headerProviderSelect'),
+  headerModelSelect: document.getElementById('headerModelSelect'),
+  headerReloadModelsBtn: document.getElementById('headerReloadModelsBtn'),
+  headerStatusDot: document.getElementById('headerStatusDot'),
   globalAutoReplyToggle: document.getElementById('globalAutoReplyToggle'),
   escalationBadge: document.getElementById('escalationBadge'),
   openWizardBtn: document.getElementById('openWizardBtn'),
@@ -129,7 +133,43 @@ const elements = {
   newContactHandle: document.getElementById('newContactHandle'),
   newContactAvatar: document.getElementById('newContactAvatar'),
   newContactMode: document.getElementById('newContactMode'),
-  newContactRelationship: document.getElementById('newContactRelationship')
+  newContactRelationship: document.getElementById('newContactRelationship'),
+
+  // Language & Speed Controls
+  headerLanguageSelect: document.getElementById('headerLanguageSelect'),
+  headerSpeedModeBtn: document.getElementById('headerSpeedModeBtn'),
+  speedModeLabel: document.getElementById('speedModeLabel'),
+  personaLanguageSelect: document.getElementById('personaLanguageSelect'),
+  rangeCodeSwitchRatio: document.getElementById('rangeCodeSwitchRatio'),
+  valCodeSwitchRatio: document.getElementById('valCodeSwitchRatio'),
+  personaSpeedSelect: document.getElementById('personaSpeedSelect'),
+  badgeActiveLang: document.getElementById('badgeActiveLang'),
+  btnSaveLanguageSettings: document.getElementById('btnSaveLanguageSettings'),
+
+  // Voice Studio & ASR/TTS Controls
+  btnVoiceRecord: document.getElementById('btnVoiceRecord'),
+  voiceListeningBar: document.getElementById('voiceListeningBar'),
+  voiceStatusLabel: document.getElementById('voiceStatusLabel'),
+  badgeActiveVoice: document.getElementById('badgeActiveVoice'),
+  voiceEmotionSelect: document.getElementById('voiceEmotionSelect'),
+  valVoicePitch: document.getElementById('valVoicePitch'),
+  rangeVoicePitch: document.getElementById('rangeVoicePitch'),
+  valVoiceRate: document.getElementById('valVoiceRate'),
+  rangeVoiceRate: document.getElementById('rangeVoiceRate'),
+  voiceAsrLangSelect: document.getElementById('voiceAsrLangSelect'),
+  voiceSynthesizerSelect: document.getElementById('voiceSynthesizerSelect'),
+  testVoiceSampleText: document.getElementById('testVoiceSampleText'),
+  btnTestVoice: document.getElementById('btnTestVoice'),
+  btnSaveVoiceSettings: document.getElementById('btnSaveVoiceSettings'),
+
+  // Signal Messenger Integration
+  signalStatusBadge: document.getElementById('signalStatusBadge'),
+  signalQrBox: document.getElementById('signalQrBox'),
+  signalPhoneInput: document.getElementById('signalPhoneInput'),
+  signalEndpointInput: document.getElementById('signalEndpointInput'),
+  btnGenerateSignalQR: document.getElementById('btnGenerateSignalQR'),
+  btnConnectSignal: document.getElementById('btnConnectSignal'),
+  btnDisconnectSignal: document.getElementById('btnDisconnectSignal')
 };
 
 // ==========================================================================
@@ -147,6 +187,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupPersonaHandlers();
   setupKnowledgeHandlers();
   setupIntegrationHandlers();
+  setupLanguageAndSpeedControls();
+  setupVoiceStudioAndSpeech();
+  setupSignalIntegration();
   setupModals();
 });
 
@@ -232,6 +275,10 @@ function handleWebSocketEvent(payload) {
       }
       break;
 
+    case 'provider_fallback_warning':
+      showHeaderToast(`⚠️ ${data.provider} failed: ${data.error || 'Connection error'}. Fell back to simulation.`, true);
+      break;
+
     case 'escalation_triggered':
       showTypingIndicator(false);
       showEscalationAlert(data);
@@ -251,8 +298,11 @@ async function loadSettings() {
       state.settings = data.settings;
       state.activeProvider = data.settings.active_provider || 'mock';
       
-      // Update UI provider badge
+      // Update UI provider badge & header select
       updateActiveProviderUI(state.activeProvider);
+
+      // Populate header model dropdown
+      await updateHeaderModelsDropdown(state.activeProvider);
 
       if (data.settings.user_name) {
         elements.sidebarUserName.textContent = data.settings.user_name;
@@ -260,6 +310,15 @@ async function loadSettings() {
 
       // Populate Provider Settings Form
       populateProviderForms(data.settings);
+
+      // Populate Language & Code-Switching Preferences
+      populateLanguageSettings(data.settings);
+
+      // Populate Auto-Response Speed Mode UI
+      updateSpeedModeUI(data.settings.response_speed_mode || 'quick');
+
+      // Populate Voice & Audio Rhythm Studio
+      populateVoiceStudioSettings(data.settings);
     }
   } catch (err) {
     console.error('Failed to load settings', err);
@@ -276,37 +335,210 @@ function updateActiveProviderUI(providerKey) {
     nvidia: 'NVIDIA NIM API',
     mock: 'Smart Fallback Engine'
   };
-  elements.currentProviderName.textContent = names[providerKey] || providerKey.toUpperCase();
+  const displayName = names[providerKey] || providerKey.toUpperCase();
+  if (elements.currentProviderName) {
+    elements.currentProviderName.textContent = displayName;
+  }
   
+  if (elements.headerProviderSelect && elements.headerProviderSelect.value !== providerKey) {
+    elements.headerProviderSelect.value = providerKey;
+  }
+
   // Highlight active provider card
   document.querySelectorAll('.provider-card').forEach(card => {
     card.classList.toggle('active-provider', card.getAttribute('data-provider') === providerKey);
   });
+
+  if (elements.inspectorProvider) {
+    elements.inspectorProvider.textContent = displayName.toUpperCase();
+  }
 }
 
 function populateProviderForms(settings) {
   if (settings.ollama_endpoint) document.getElementById('cfg_ollama_endpoint').value = settings.ollama_endpoint;
-  if (settings.ollama_model) document.getElementById('cfg_ollama_model').value = settings.ollama_model;
+  setModelDropdownValue('cfg_ollama_model', settings.ollama_model);
 
   if (settings.lmstudio_endpoint) document.getElementById('cfg_lmstudio_endpoint').value = settings.lmstudio_endpoint;
-  if (settings.lmstudio_model) document.getElementById('cfg_lmstudio_model').value = settings.lmstudio_model;
+  setModelDropdownValue('cfg_lmstudio_model', settings.lmstudio_model);
 
   if (settings.openai_endpoint) document.getElementById('cfg_openai_endpoint').value = settings.openai_endpoint;
   if (settings.openai_api_key) document.getElementById('cfg_openai_api_key').value = settings.openai_api_key;
-  if (settings.openai_model) document.getElementById('cfg_openai_model').value = settings.openai_model;
+  setModelDropdownValue('cfg_openai_model', settings.openai_model);
 
   if (settings.gemini_api_key) document.getElementById('cfg_gemini_api_key').value = settings.gemini_api_key;
-  if (settings.gemini_model) document.getElementById('cfg_gemini_model').value = settings.gemini_model;
+  setModelDropdownValue('cfg_gemini_model', settings.gemini_model);
 
   if (settings.openrouter_api_key) document.getElementById('cfg_openrouter_api_key').value = settings.openrouter_api_key;
-  if (settings.openrouter_model) document.getElementById('cfg_openrouter_model').value = settings.openrouter_model;
+  setModelDropdownValue('cfg_openrouter_model', settings.openrouter_model);
 
   if (settings.nvidia_api_key) document.getElementById('cfg_nvidia_api_key').value = settings.nvidia_api_key;
   if (settings.nvidia_endpoint) document.getElementById('cfg_nvidia_endpoint').value = settings.nvidia_endpoint;
-  if (settings.nvidia_model) document.getElementById('cfg_nvidia_model').value = settings.nvidia_model;
+  setModelDropdownValue('cfg_nvidia_model', settings.nvidia_model);
+}
+
+// Helper: Set a model dropdown value, adding a new option if the saved value doesn't exist yet
+function setModelDropdownValue(selectId, value) {
+  if (!value) return;
+  const select = document.getElementById(selectId);
+  if (!select) return;
+  // Check if option exists
+  const exists = Array.from(select.options).some(opt => opt.value === value);
+  if (!exists) {
+    const opt = document.createElement('option');
+    opt.value = value;
+    opt.textContent = value;
+    select.appendChild(opt);
+  }
+  select.value = value;
+}
+
+// Helper: Get the effective model value (custom input overrides dropdown)
+function getEffectiveModelValue(provider) {
+  const customInput = document.getElementById(`cfg_${provider}_model_custom`);
+  const select = document.getElementById(`cfg_${provider}_model`);
+  if (customInput && customInput.value.trim()) {
+    return customInput.value.trim();
+  }
+  return select ? select.value : '';
+}
+
+// Floating Toast for Header AI Provider & Model updates
+function showHeaderToast(message, isWarning = false) {
+  let toast = document.getElementById('headerAiToast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'headerAiToast';
+    toast.className = 'header-ai-toast';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = message;
+  toast.className = `header-ai-toast ${isWarning ? 'warning' : ''} show`;
+  clearTimeout(toast._timeout);
+  toast._timeout = setTimeout(() => {
+    toast.classList.remove('show');
+  }, 3200);
+}
+
+/**
+ * Fetch and populate header model dropdown for the given provider
+ */
+async function updateHeaderModelsDropdown(providerKey, forceSelectModel = null) {
+  if (!elements.headerModelSelect) return;
+
+  const currentModel = forceSelectModel || state.settings[`${providerKey}_model`] || '';
+
+  // Set loading state
+  elements.headerModelSelect.innerHTML = '<option value="">Loading models...</option>';
+  elements.headerModelSelect.disabled = true;
+  if (elements.headerReloadModelsBtn) {
+    elements.headerReloadModelsBtn.classList.add('spinning');
+  }
+
+  try {
+    const res = await fetch('/api/provider/models', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: providerKey })
+    });
+    const data = await res.json();
+
+    elements.headerModelSelect.innerHTML = '';
+
+    if (data.success && data.models && data.models.length > 0) {
+      data.models.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        let label = m.name || m.id;
+        if (m.size) label += ` (${m.size})`;
+        opt.textContent = label;
+        elements.headerModelSelect.appendChild(opt);
+      });
+
+      // Also sync with the provider settings card dropdown if on screen
+      const cardSelect = document.getElementById(`cfg_${providerKey}_model`);
+      if (cardSelect) {
+        cardSelect.innerHTML = elements.headerModelSelect.innerHTML;
+      }
+
+      // Check if current active model exists in options
+      const exists = Array.from(elements.headerModelSelect.options).some(o => o.value === currentModel);
+      if (exists) {
+        elements.headerModelSelect.value = currentModel;
+        if (cardSelect) cardSelect.value = currentModel;
+      } else {
+        // Automatically select first available model and persist it
+        const first = elements.headerModelSelect.options[0].value;
+        elements.headerModelSelect.value = first;
+        state.settings[`${providerKey}_model`] = first;
+        if (cardSelect) cardSelect.value = first;
+        await saveSettings({ [`${providerKey}_model`]: first });
+      }
+    } else {
+      // Fallback placeholder option
+      const opt = document.createElement('option');
+      opt.value = currentModel || 'default';
+      opt.textContent = currentModel || 'Default Model';
+      elements.headerModelSelect.appendChild(opt);
+      elements.headerModelSelect.value = opt.value;
+    }
+  } catch (err) {
+    console.warn('[Header] Error fetching models for', providerKey, err);
+    elements.headerModelSelect.innerHTML = `<option value="${currentModel || 'default'}">${currentModel || 'Default Model'}</option>`;
+  } finally {
+    elements.headerModelSelect.disabled = false;
+    if (elements.headerReloadModelsBtn) {
+      elements.headerReloadModelsBtn.classList.remove('spinning');
+    }
+    // Update Brain Inspector
+    if (elements.inspectorModel) {
+      elements.inspectorModel.textContent = elements.headerModelSelect.value || currentModel || 'default';
+    }
+  }
 }
 
 function setupProviderHandlers() {
+  // Header Provider Select Dropdown
+  if (elements.headerProviderSelect) {
+    elements.headerProviderSelect.addEventListener('change', async (e) => {
+      const selected = e.target.value;
+      state.activeProvider = selected;
+      state.settings.active_provider = selected;
+      updateActiveProviderUI(selected);
+      await saveSettings({ active_provider: selected });
+      showHeaderToast(`AI Provider: ${selected.toUpperCase()}`);
+      await updateHeaderModelsDropdown(selected);
+    });
+  }
+
+  // Header Model Select Dropdown
+  if (elements.headerModelSelect) {
+    elements.headerModelSelect.addEventListener('change', async (e) => {
+      const selectedModel = e.target.value;
+      if (!selectedModel) return;
+      const modelKey = `${state.activeProvider}_model`;
+      state.settings[modelKey] = selectedModel;
+
+      // Update provider card select & custom input
+      const cardSelect = document.getElementById(`cfg_${state.activeProvider}_model`);
+      if (cardSelect) setModelDropdownValue(`cfg_${state.activeProvider}_model`, selectedModel);
+      const customInput = document.getElementById(`cfg_${state.activeProvider}_model_custom`);
+      if (customInput) customInput.value = '';
+
+      await saveSettings({ [modelKey]: selectedModel });
+      if (elements.inspectorModel) elements.inspectorModel.textContent = selectedModel;
+      showHeaderToast(`Model: ${selectedModel}`);
+    });
+  }
+
+  // Header Reload Models Button
+  if (elements.headerReloadModelsBtn) {
+    elements.headerReloadModelsBtn.addEventListener('click', async () => {
+      showHeaderToast(`Refreshing ${state.activeProvider.toUpperCase()} models...`);
+      await updateHeaderModelsDropdown(state.activeProvider);
+      showHeaderToast(`Models updated for ${state.activeProvider.toUpperCase()}`);
+    });
+  }
+
   // Test Ping buttons
   document.querySelectorAll('.btn-test-provider').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -358,30 +590,36 @@ function setupProviderHandlers() {
       const selected = btn.getAttribute('data-select');
       await saveSettings({ active_provider: selected });
       state.activeProvider = selected;
+      state.settings.active_provider = selected;
       updateActiveProviderUI(selected);
+      await updateHeaderModelsDropdown(selected);
+      showHeaderToast(`Active Provider: ${selected.toUpperCase()}`);
     });
   });
 
   // Save All Settings
   elements.btnSaveProviderSettings.addEventListener('click', async () => {
     const updates = {
+      active_provider: state.activeProvider,
       ollama_endpoint: document.getElementById('cfg_ollama_endpoint').value,
-      ollama_model: document.getElementById('cfg_ollama_model').value,
+      ollama_model: getEffectiveModelValue('ollama'),
       lmstudio_endpoint: document.getElementById('cfg_lmstudio_endpoint').value,
-      lmstudio_model: document.getElementById('cfg_lmstudio_model').value,
+      lmstudio_model: getEffectiveModelValue('lmstudio'),
       openai_endpoint: document.getElementById('cfg_openai_endpoint').value,
       openai_api_key: document.getElementById('cfg_openai_api_key').value,
-      openai_model: document.getElementById('cfg_openai_model').value,
+      openai_model: getEffectiveModelValue('openai'),
       gemini_api_key: document.getElementById('cfg_gemini_api_key').value,
-      gemini_model: document.getElementById('cfg_gemini_model').value,
+      gemini_model: getEffectiveModelValue('gemini'),
       openrouter_api_key: document.getElementById('cfg_openrouter_api_key').value,
-      openrouter_model: document.getElementById('cfg_openrouter_model').value,
+      openrouter_model: getEffectiveModelValue('openrouter'),
       nvidia_api_key: document.getElementById('cfg_nvidia_api_key').value,
       nvidia_endpoint: document.getElementById('cfg_nvidia_endpoint').value,
-      nvidia_model: document.getElementById('cfg_nvidia_model').value
+      nvidia_model: getEffectiveModelValue('nvidia')
     };
 
     await saveSettings(updates);
+    await updateHeaderModelsDropdown(state.activeProvider);
+    showHeaderToast('Settings saved successfully!');
     alert('Settings saved successfully!');
   });
 
@@ -389,6 +627,147 @@ function setupProviderHandlers() {
   elements.globalAutoReplyToggle.addEventListener('change', async (e) => {
     await saveSettings({ global_auto_reply: String(e.target.checked) });
   });
+
+  // Load Models Buttons — Fetch models from provider API and populate dropdown
+  document.querySelectorAll('.btn-load-models').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const provider = btn.getAttribute('data-provider');
+      loadModelsForProvider(provider, btn);
+    });
+  });
+
+  // Custom model input: clear dropdown selection when user types a custom model
+  document.querySelectorAll('.model-custom-input').forEach(input => {
+    input.addEventListener('input', () => {
+      if (input.value.trim()) {
+        const provider = input.id.replace('cfg_', '').replace('_model_custom', '');
+        const select = document.getElementById(`cfg_${provider}_model`);
+        if (select) select.value = '';
+      }
+    });
+  });
+}
+
+/**
+ * Fetch models from a provider's API and populate the dropdown
+ */
+async function loadModelsForProvider(providerKey, btn) {
+  const select = document.getElementById(`cfg_${providerKey}_model`);
+  const statusBox = document.getElementById(`status_${providerKey}`);
+  const customInput = document.getElementById(`cfg_${providerKey}_model_custom`);
+  if (!select) return;
+
+  // Build config from current form values
+  const config = {};
+  const endpointEl = document.getElementById(`cfg_${providerKey}_endpoint`);
+  const apiKeyEl = document.getElementById(`cfg_${providerKey}_api_key`);
+  if (endpointEl) config[`${providerKey}_endpoint`] = endpointEl.value;
+  if (apiKeyEl) config[`${providerKey}_api_key`] = apiKeyEl.value;
+
+  // Save current selection
+  const previousValue = select.value;
+
+  // UI: Set loading state
+  btn.classList.add('loading');
+  btn.classList.remove('success', 'error');
+  const originalHTML = btn.innerHTML;
+  btn.innerHTML = '<i data-lucide="loader-2"></i> Loading...';
+  if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [btn] });
+  select.disabled = true;
+  if (statusBox) {
+    statusBox.textContent = 'Fetching models from API...';
+    statusBox.className = 'provider-status-msg';
+  }
+
+  try {
+    const res = await fetch('/api/provider/models', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: providerKey, config })
+    });
+    const data = await res.json();
+
+    if (data.success && data.models && data.models.length > 0) {
+      // Clear existing options
+      select.innerHTML = '';
+
+      // Populate with fetched models
+      data.models.forEach(model => {
+        const opt = document.createElement('option');
+        opt.value = model.id;
+        let label = model.name || model.id;
+        if (model.size) label += ` (${model.size})`;
+        if (model.owned_by) label += ` — ${model.owned_by}`;
+        opt.textContent = label;
+        select.appendChild(opt);
+      });
+
+      // Try to restore previous selection
+      const restorable = Array.from(select.options).some(o => o.value === previousValue);
+      if (restorable) {
+        select.value = previousValue;
+      }
+
+      // Clear custom input since we now have real models
+      if (customInput) customInput.value = '';
+
+      // Sync with header model dropdown if this provider is currently active
+      if (providerKey === state.activeProvider && elements.headerModelSelect) {
+        elements.headerModelSelect.innerHTML = select.innerHTML;
+        elements.headerModelSelect.value = select.value;
+      }
+
+      // UI: Success state
+      btn.classList.remove('loading');
+      btn.classList.add('success');
+      btn.innerHTML = `<i data-lucide="check-circle"></i> ${data.models.length} Models`;
+      if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [btn] });
+      if (statusBox) {
+        statusBox.textContent = data.message || `Loaded ${data.models.length} models successfully`;
+        statusBox.className = 'provider-status-msg success';
+      }
+
+      // Reset button after 4 seconds
+      setTimeout(() => {
+        btn.classList.remove('success');
+        btn.innerHTML = '<i data-lucide="download-cloud"></i> Load Models';
+        if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [btn] });
+      }, 4000);
+    } else {
+      // No models found or error
+      btn.classList.remove('loading');
+      btn.classList.add('error');
+      btn.innerHTML = '<i data-lucide="alert-circle"></i> Failed';
+      if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [btn] });
+      if (statusBox) {
+        statusBox.textContent = data.message || 'No models found. Check your endpoint and API key.';
+        statusBox.className = 'provider-status-msg error';
+      }
+
+      setTimeout(() => {
+        btn.classList.remove('error');
+        btn.innerHTML = '<i data-lucide="download-cloud"></i> Load Models';
+        if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [btn] });
+      }, 4000);
+    }
+  } catch (err) {
+    btn.classList.remove('loading');
+    btn.classList.add('error');
+    btn.innerHTML = '<i data-lucide="alert-circle"></i> Error';
+    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [btn] });
+    if (statusBox) {
+      statusBox.textContent = `Network error: ${err.message}`;
+      statusBox.className = 'provider-status-msg error';
+    }
+
+    setTimeout(() => {
+      btn.classList.remove('error');
+      btn.innerHTML = '<i data-lucide="download-cloud"></i> Load Models';
+      if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [btn] });
+    }, 4000);
+  } finally {
+    select.disabled = false;
+  }
 }
 
 async function saveSettings(updates) {
@@ -509,14 +888,44 @@ function appendMessageBubble(msg) {
   
   const timeStr = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now';
 
+  let meta = {};
+  if (msg.metadata) {
+    try {
+      meta = typeof msg.metadata === 'string' ? JSON.parse(msg.metadata) : msg.metadata;
+    } catch {}
+  }
+  const provider = msg.provider || meta.provider;
+  const model = msg.model || meta.model;
+  const isFallback = msg.isFallback || meta.isFallback;
+  const error = msg.error || meta.error;
+
+  let modelTagHtml = '';
+  if (msg.direction === 'outgoing' && provider) {
+    if (isFallback) {
+      modelTagHtml = `<span class="message-fallback-badge" title="Fallback Reason: ${escapeHTML(error || 'AI Provider Unavailable')}">⚠️ Fallback: ${escapeHTML(model || 'mock')}</span>`;
+    } else {
+      modelTagHtml = `<span class="message-model-tag" title="Generated by ${escapeHTML(provider)}">${escapeHTML(provider)}${model ? ' · ' + escapeHTML(model) : ''}</span>`;
+    }
+  }
+
   bubble.innerHTML = `
     <div class="message-content">${escapeHTML(msg.text)}</div>
     <div class="message-meta">
       <span class="message-time">${timeStr}</span>
       <span class="message-mode-tag">${msg.mode || 'bot'}</span>
+      ${modelTagHtml}
+      <button class="btn-msg-tts" type="button" title="Speak text (TTS Voice Rhythm)">🔊</button>
       ${msg.direction === 'outgoing' ? '<i data-lucide="check-check" style="width:12px;height:12px;"></i>' : ''}
     </div>
   `;
+
+  const ttsBtn = bubble.querySelector('.btn-msg-tts');
+  if (ttsBtn) {
+    ttsBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      speakMessageWithEmotion(msg.text);
+    });
+  }
 
   elements.chatMessagesContainer.appendChild(bubble);
   if (window.lucide) lucide.createIcons();
@@ -1104,17 +1513,16 @@ function setupIntegrationHandlers() {
       const data = await res.json();
       if (data.success) {
         elements.waStatusBadge.textContent = 'Pairing (Scan QR)';
+        const waImg = data.qrDataUrl
+          ? `<img src="${data.qrDataUrl}" alt="WhatsApp Web QR Code" width="200" height="200" style="display:block;border-radius:6px;" />`
+          : `<div style="padding:16px;color:#000;">${data.qrCode}</div>`;
+
         elements.waQrBox.innerHTML = `
           <div style="display:flex;flex-direction:column;align-items:center;gap:10px;">
-            <div style="background:#fff;padding:12px;border-radius:8px;display:inline-block;">
-              <svg width="140" height="140" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2">
-                <rect x="3" y="3" width="7" height="7"></rect>
-                <rect x="14" y="3" width="7" height="7"></rect>
-                <rect x="3" y="14" width="7" height="7"></rect>
-                <rect x="14" y="14" width="7" height="7"></rect>
-              </svg>
+            <div style="background:#fff;padding:12px;border-radius:10px;display:inline-block;box-shadow:0 6px 18px rgba(0,0,0,0.3);">
+              ${waImg}
             </div>
-            <span class="text-xs text-muted">Session Code: ${data.qrCode.substring(0, 24)}...</span>
+            <span class="text-xs text-muted">Session Code: ${(data.qrCode || '').substring(0, 24)}...</span>
           </div>
         `;
       }
@@ -1180,6 +1588,483 @@ function setupIntegrationHandlers() {
       elements.tgStatusBox.innerHTML = `<span style="color:var(--accent-danger);">Connection error: ${e.message}</span>`;
     }
   });
+}
+
+// ==========================================================================
+// Language & Code-Switching Preferences (98% Tanglish / Multi-Language)
+// ==========================================================================
+function populateLanguageSettings(settings) {
+  const lang = settings.preferred_language || 'tanglish';
+  const ratio = settings.code_switching_ratio || '98';
+
+  if (elements.headerLanguageSelect) elements.headerLanguageSelect.value = lang;
+  if (elements.personaLanguageSelect) elements.personaLanguageSelect.value = lang;
+  if (elements.rangeCodeSwitchRatio) elements.rangeCodeSwitchRatio.value = ratio;
+  if (elements.valCodeSwitchRatio) elements.valCodeSwitchRatio.textContent = `${ratio}%`;
+
+  if (elements.badgeActiveLang) {
+    const langNames = {
+      tanglish: '98% Tanglish Active',
+      english: 'English (Global) Active',
+      hinglish: 'Hinglish (Hindi+Eng) Active',
+      tenglish: 'Tenglish (Telugu+Eng) Active',
+      manglish: 'Manglish (Malayalam+Eng) Active',
+      kanglish: 'Kanglish (Kannada+Eng) Active',
+      tamil: 'Tamil (தமிழ்) Active'
+    };
+    elements.badgeActiveLang.textContent = langNames[lang] || `${lang.toUpperCase()} Active`;
+  }
+}
+
+function updateSpeedModeUI(mode) {
+  const isQuick = mode === 'quick';
+  if (elements.headerSpeedModeBtn) {
+    elements.headerSpeedModeBtn.classList.toggle('active', isQuick);
+    elements.headerSpeedModeBtn.classList.toggle('speed-deep', !isQuick);
+    if (elements.speedModeLabel) {
+      elements.speedModeLabel.textContent = isQuick ? '⚡ Quick' : '🧠 Deep';
+    }
+    elements.headerSpeedModeBtn.title = isQuick
+      ? 'Response Speed: Quick Answer (<2s, instant reply)'
+      : 'Response Speed: Deep Thinking (Extended reasoning allowed)';
+  }
+  if (elements.personaSpeedSelect) {
+    elements.personaSpeedSelect.value = mode;
+  }
+}
+
+function setupLanguageAndSpeedControls() {
+  // Header Language Select
+  if (elements.headerLanguageSelect) {
+    elements.headerLanguageSelect.addEventListener('change', async (e) => {
+      const selectedLang = e.target.value;
+      if (elements.personaLanguageSelect) elements.personaLanguageSelect.value = selectedLang;
+      state.settings.preferred_language = selectedLang;
+      await saveSettings({ preferred_language: selectedLang });
+      populateLanguageSettings(state.settings);
+      showHeaderToast(`Language: ${e.target.selectedOptions[0]?.text || selectedLang}`);
+    });
+  }
+
+  // Header Speed Mode Toggle
+  if (elements.headerSpeedModeBtn) {
+    elements.headerSpeedModeBtn.addEventListener('click', async () => {
+      const current = state.settings.response_speed_mode || 'quick';
+      const next = current === 'quick' ? 'deep' : 'quick';
+      state.settings.response_speed_mode = next;
+      updateSpeedModeUI(next);
+      await saveSettings({ response_speed_mode: next });
+      showHeaderToast(next === 'quick' ? '⚡ Quick Answer Mode Active (<2s)' : '🧠 Deep Thinking Mode Active');
+    });
+  }
+
+  // Persona View Code-Switching Ratio slider
+  if (elements.rangeCodeSwitchRatio) {
+    elements.rangeCodeSwitchRatio.addEventListener('input', (e) => {
+      if (elements.valCodeSwitchRatio) {
+        elements.valCodeSwitchRatio.textContent = `${e.target.value}%`;
+      }
+    });
+  }
+
+  // Persona View Save Language Settings Button
+  if (elements.btnSaveLanguageSettings) {
+    elements.btnSaveLanguageSettings.addEventListener('click', async () => {
+      const preferred_language = elements.personaLanguageSelect ? elements.personaLanguageSelect.value : 'tanglish';
+      const code_switching_ratio = elements.rangeCodeSwitchRatio ? elements.rangeCodeSwitchRatio.value : '98';
+      const response_speed_mode = elements.personaSpeedSelect ? elements.personaSpeedSelect.value : 'quick';
+
+      state.settings.preferred_language = preferred_language;
+      state.settings.code_switching_ratio = code_switching_ratio;
+      state.settings.response_speed_mode = response_speed_mode;
+
+      await saveSettings({
+        preferred_language,
+        code_switching_ratio,
+        response_speed_mode
+      });
+
+      populateLanguageSettings(state.settings);
+      updateSpeedModeUI(response_speed_mode);
+      showHeaderToast('Language & Speed preferences saved!');
+    });
+  }
+}
+
+// ==========================================================================
+// Voice & Audio Rhythm Studio (Speech-to-Text ASR & Text-to-Speech TTS)
+// ==========================================================================
+let activeSpeechRecognition = null;
+let isVoiceListening = false;
+
+function populateVoiceStudioSettings(settings) {
+  if (elements.voiceEmotionSelect) elements.voiceEmotionSelect.value = settings.voice_emotion || 'warm';
+  if (elements.rangeVoicePitch) elements.rangeVoicePitch.value = settings.voice_pitch || '1.0';
+  if (elements.valVoicePitch) elements.valVoicePitch.textContent = `${Number(settings.voice_pitch || 1.0).toFixed(2)}x`;
+  if (elements.rangeVoiceRate) elements.rangeVoiceRate.value = settings.voice_rate || '1.05';
+  if (elements.valVoiceRate) elements.valVoiceRate.textContent = `${Number(settings.voice_rate || 1.05).toFixed(2)}x`;
+  if (elements.voiceAsrLangSelect) elements.voiceAsrLangSelect.value = settings.voice_asr_lang || 'ta-IN';
+  if (elements.badgeActiveVoice) {
+    const emotionLabels = {
+      warm: 'Warm & Affectionate',
+      playful: 'Playful & Bubbly',
+      calm: 'Calm & Reassuring',
+      expressive: 'Expressive & Dynamic'
+    };
+    elements.badgeActiveVoice.textContent = `Emotion: ${emotionLabels[settings.voice_emotion || 'warm'] || 'Warm & Affectionate'}`;
+  }
+}
+
+function setupVoiceStudioAndSpeech() {
+  function loadVoices() {
+    if (!window.speechSynthesis || !elements.voiceSynthesizerSelect) return;
+    const voices = window.speechSynthesis.getVoices();
+    elements.voiceSynthesizerSelect.innerHTML = '<option value="">Auto Detect Voice (System)</option>';
+    voices.forEach(v => {
+      const opt = document.createElement('option');
+      opt.value = v.voiceURI;
+      opt.textContent = `${v.name} (${v.lang})${v.default ? ' [Default]' : ''}`;
+      elements.voiceSynthesizerSelect.appendChild(opt);
+    });
+  }
+
+  if (window.speechSynthesis) {
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+    loadVoices();
+  }
+
+  // Pitch & Rate live sliders
+  if (elements.rangeVoicePitch) {
+    elements.rangeVoicePitch.addEventListener('input', (e) => {
+      if (elements.valVoicePitch) elements.valVoicePitch.textContent = `${Number(e.target.value).toFixed(2)}x`;
+    });
+  }
+
+  if (elements.rangeVoiceRate) {
+    elements.rangeVoiceRate.addEventListener('input', (e) => {
+      if (elements.valVoiceRate) elements.valVoiceRate.textContent = `${Number(e.target.value).toFixed(2)}x`;
+    });
+  }
+
+  // Emotion selector adjusts pitch/tempo rhythm
+  if (elements.voiceEmotionSelect) {
+    elements.voiceEmotionSelect.addEventListener('change', (e) => {
+      const emotion = e.target.value;
+      const presets = {
+        warm: { pitch: 1.05, rate: 0.98, label: 'Warm & Affectionate' },
+        playful: { pitch: 1.15, rate: 1.12, label: 'Playful & Bubbly' },
+        calm: { pitch: 0.92, rate: 0.90, label: 'Calm & Reassuring' },
+        expressive: { pitch: 1.10, rate: 1.05, label: 'Expressive & Dynamic' }
+      };
+      const preset = presets[emotion];
+      if (preset) {
+        if (elements.rangeVoicePitch) {
+          elements.rangeVoicePitch.value = preset.pitch;
+          if (elements.valVoicePitch) elements.valVoicePitch.textContent = `${preset.pitch.toFixed(2)}x`;
+        }
+        if (elements.rangeVoiceRate) {
+          elements.rangeVoiceRate.value = preset.rate;
+          if (elements.valVoiceRate) elements.valVoiceRate.textContent = `${preset.rate.toFixed(2)}x`;
+        }
+        if (elements.badgeActiveVoice) {
+          elements.badgeActiveVoice.textContent = `Emotion: ${preset.label}`;
+        }
+      }
+    });
+  }
+
+  // Test Voice Button
+  if (elements.btnTestVoice) {
+    elements.btnTestVoice.addEventListener('click', () => {
+      const sample = elements.testVoiceSampleText ? elements.testVoiceSampleText.value : 'Sema da chellam! Sapdiya? On the way vandhute irukken ❤️';
+      speakMessageWithEmotion(sample);
+    });
+  }
+
+  // Save Voice Settings
+  if (elements.btnSaveVoiceSettings) {
+    elements.btnSaveVoiceSettings.addEventListener('click', async () => {
+      const voice_emotion = elements.voiceEmotionSelect ? elements.voiceEmotionSelect.value : 'warm';
+      const voice_pitch = elements.rangeVoicePitch ? elements.rangeVoicePitch.value : '1.0';
+      const voice_rate = elements.rangeVoiceRate ? elements.rangeVoiceRate.value : '1.05';
+      const voice_asr_lang = elements.voiceAsrLangSelect ? elements.voiceAsrLangSelect.value : 'ta-IN';
+
+      state.settings.voice_emotion = voice_emotion;
+      state.settings.voice_pitch = voice_pitch;
+      state.settings.voice_rate = voice_rate;
+      state.settings.voice_asr_lang = voice_asr_lang;
+
+      await saveSettings({ voice_emotion, voice_pitch, voice_rate, voice_asr_lang });
+      populateVoiceStudioSettings(state.settings);
+      showHeaderToast('Voice Studio settings saved!');
+    });
+  }
+
+  // Voice-to-Text (ASR) Mic Button
+  if (elements.btnVoiceRecord) {
+    elements.btnVoiceRecord.addEventListener('click', toggleVoiceRecording);
+  }
+}
+
+function toggleVoiceRecording() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    alert('Voice-to-Text (ASR) is supported on Google Chrome, Microsoft Edge, and Chromium-based browsers. Please test in Chrome/Edge.');
+    return;
+  }
+
+  if (isVoiceListening && activeSpeechRecognition) {
+    activeSpeechRecognition.stop();
+    return;
+  }
+
+  try {
+    const recognition = new SpeechRecognition();
+    const asrLang = elements.voiceAsrLangSelect ? elements.voiceAsrLangSelect.value : (state.settings.voice_asr_lang || 'ta-IN');
+    recognition.lang = asrLang;
+    recognition.continuous = false;
+    recognition.interimResults = true;
+
+    recognition.onstart = () => {
+      isVoiceListening = true;
+      if (elements.btnVoiceRecord) elements.btnVoiceRecord.classList.add('recording');
+      if (elements.voiceListeningBar) elements.voiceListeningBar.classList.remove('hidden');
+      if (elements.voiceStatusLabel) {
+        elements.voiceStatusLabel.textContent = `Listening in ${asrLang === 'ta-IN' ? 'Tanglish / Tamil' : asrLang}... Speak now!`;
+      }
+    };
+
+    recognition.onresult = (event) => {
+      let interim = '';
+      let final = '';
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          final += event.results[i][0].transcript;
+        } else {
+          interim += event.results[i][0].transcript;
+        }
+      }
+      if (elements.simulatedInputText) {
+        elements.simulatedInputText.value = final || interim;
+      }
+      if (elements.voiceStatusLabel) {
+        elements.voiceStatusLabel.textContent = `Heard: "${final || interim}"`;
+      }
+    };
+
+    recognition.onerror = (event) => {
+      console.warn('Speech Recognition error:', event.error);
+      if (elements.voiceStatusLabel) {
+        elements.voiceStatusLabel.textContent = `Voice recognition error: ${event.error}`;
+      }
+    };
+
+    recognition.onend = () => {
+      isVoiceListening = false;
+      if (elements.btnVoiceRecord) elements.btnVoiceRecord.classList.remove('recording');
+      if (elements.voiceListeningBar) elements.voiceListeningBar.classList.add('hidden');
+      activeSpeechRecognition = null;
+    };
+
+    activeSpeechRecognition = recognition;
+    recognition.start();
+  } catch (err) {
+    console.error('Error starting speech recognition', err);
+    alert(`Could not start microphone: ${err.message}`);
+  }
+}
+
+function speakMessageWithEmotion(rawText) {
+  if (!window.speechSynthesis) {
+    console.warn('SpeechSynthesis not supported');
+    return;
+  }
+
+  // Cancel any ongoing speech
+  window.speechSynthesis.cancel();
+
+  // Clean emojis and markdown formatting to produce natural spoken rhythm
+  let cleanText = rawText
+    .replace(/[#*_`~]/g, '')
+    .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!cleanText) return;
+
+  const utterance = new SpeechSynthesisUtterance(cleanText);
+
+  // Apply emotion and rhythm modifiers
+  const emotion = elements.voiceEmotionSelect ? elements.voiceEmotionSelect.value : (state.settings.voice_emotion || 'warm');
+  let basePitch = parseFloat(elements.rangeVoicePitch ? elements.rangeVoicePitch.value : (state.settings.voice_pitch || 1.0));
+  let baseRate = parseFloat(elements.rangeVoiceRate ? elements.rangeVoiceRate.value : (state.settings.voice_rate || 1.05));
+
+  if (emotion === 'warm') {
+    basePitch = Math.min(1.5, basePitch * 1.04);
+    baseRate = Math.max(0.6, baseRate * 0.96);
+  } else if (emotion === 'playful') {
+    basePitch = Math.min(1.5, basePitch * 1.12);
+    baseRate = Math.min(1.8, baseRate * 1.08);
+  } else if (emotion === 'calm') {
+    basePitch = Math.max(0.6, basePitch * 0.93);
+    baseRate = Math.max(0.6, baseRate * 0.88);
+  }
+
+  utterance.pitch = basePitch;
+  utterance.rate = baseRate;
+
+  // Voice selection
+  const selectedVoiceUri = elements.voiceSynthesizerSelect ? elements.voiceSynthesizerSelect.value : '';
+  const voices = window.speechSynthesis.getVoices();
+  if (selectedVoiceUri) {
+    const match = voices.find(v => v.voiceURI === selectedVoiceUri);
+    if (match) utterance.voice = match;
+  } else {
+    // Look for Indian / Tamil voice
+    const localVoice = voices.find(v => v.lang === 'ta-IN' || v.lang === 'en-IN');
+    if (localVoice) utterance.voice = localVoice;
+  }
+
+  window.speechSynthesis.speak(utterance);
+}
+
+// ==========================================================================
+// Signal Messenger Integration
+// ==========================================================================
+function setupSignalIntegration() {
+  fetchSignalStatus();
+
+  // Generate QR linking
+  if (elements.btnGenerateSignalQR) {
+    elements.btnGenerateSignalQR.addEventListener('click', async () => {
+      const phone = elements.signalPhoneInput ? elements.signalPhoneInput.value.trim() : '';
+      const endpoint = elements.signalEndpointInput ? elements.signalEndpointInput.value.trim() : '';
+      if (!phone) {
+        alert('Please enter your Signal phone number.');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/integrations/signal/link', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone, endpoint })
+        });
+        const data = await res.json();
+        if (data.success) {
+          if (elements.signalStatusBadge) elements.signalStatusBadge.textContent = 'Pairing (Scan QR)';
+          if (elements.signalQrBox) {
+            const qrImg = data.qrDataUrl
+              ? `<img src="${data.qrDataUrl}" alt="Signal Linking QR Code" width="220" height="220" style="display:block;border-radius:8px;" />`
+              : `<div style="padding:16px;color:#000;">${data.linkingUri || data.qrCode}</div>`;
+
+            const linkCode = data.linkingUri || data.qrCode || '';
+
+            elements.signalQrBox.innerHTML = `
+              <div style="display:flex;flex-direction:column;align-items:center;gap:12px;width:100%;">
+                <div style="background:#ffffff;padding:12px;border-radius:12px;display:inline-block;box-shadow:0 8px 24px rgba(0,0,0,0.35);">
+                  ${qrImg}
+                </div>
+                <div style="font-size:11px;color:var(--text-muted);word-break:break-all;text-align:center;padding:4px 10px;max-width:320px;font-family:monospace;background:rgba(0,0,0,0.25);border-radius:6px;border:1px solid rgba(255,255,255,0.06);">
+                  <code>${escapeHTML(linkCode)}</code>
+                </div>
+                <div style="color:var(--accent-cyan);font-size:12px;text-align:center;font-weight:500;">
+                  Open <strong>Signal App → Settings → Linked Devices → Link New Device</strong> and scan this QR code
+                </div>
+              </div>
+            `;
+          }
+        } else {
+          alert(`Signal Link Error: ${data.message}`);
+        }
+      } catch (err) {
+        alert(`Signal Error: ${err.message}`);
+      }
+    });
+  }
+
+  // Quick Connect
+  if (elements.btnConnectSignal) {
+    elements.btnConnectSignal.addEventListener('click', async () => {
+      const phone = elements.signalPhoneInput ? elements.signalPhoneInput.value.trim() : '';
+      const endpoint = elements.signalEndpointInput ? elements.signalEndpointInput.value.trim() : '';
+
+      try {
+        const res = await fetch('/api/integrations/signal/connect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone, endpoint })
+        });
+        const data = await res.json();
+        if (data.success) {
+          if (elements.signalStatusBadge) {
+            elements.signalStatusBadge.textContent = 'Connected (Active)';
+            elements.signalStatusBadge.className = 'status-badge connected';
+          }
+          if (elements.signalQrBox) {
+            elements.signalQrBox.innerHTML = `
+              <div style="color:var(--accent-emerald);text-align:center;padding:12px;">
+                <strong>✓ Signal Messenger Linked & Active</strong>
+                <p class="text-xs text-muted" style="margin-top:6px;">Daemon: ${escapeHTML(endpoint || 'http://127.0.0.1:8080')}<br>Account: ${escapeHTML(phone)}</p>
+              </div>
+            `;
+          }
+          if (elements.btnDisconnectSignal) elements.btnDisconnectSignal.classList.remove('hidden');
+        }
+      } catch (err) {
+        alert(`Signal Connection Error: ${err.message}`);
+      }
+    });
+  }
+
+  // Disconnect
+  if (elements.btnDisconnectSignal) {
+    elements.btnDisconnectSignal.addEventListener('click', async () => {
+      try {
+        await fetch('/api/integrations/signal/disconnect', { method: 'POST' });
+        if (elements.signalStatusBadge) {
+          elements.signalStatusBadge.textContent = 'Disconnected';
+          elements.signalStatusBadge.className = 'status-badge';
+        }
+        if (elements.signalQrBox) {
+          elements.signalQrBox.innerHTML = `
+            <div class="qr-placeholder" id="signalQrPlaceholder">
+              <i data-lucide="shield-check"></i>
+              <p>Click below to generate Signal Linking Device QR</p>
+            </div>
+          `;
+          if (window.lucide) lucide.createIcons();
+        }
+        elements.btnDisconnectSignal.classList.add('hidden');
+      } catch (err) {
+        alert(`Disconnect error: ${err.message}`);
+      }
+    });
+  }
+}
+
+async function fetchSignalStatus() {
+  try {
+    const res = await fetch('/api/integrations/signal/status');
+    const data = await res.json();
+    if (data.success && data.status) {
+      if (elements.signalEndpointInput && data.status.endpoint) {
+        elements.signalEndpointInput.value = data.status.endpoint;
+      }
+      if (elements.signalPhoneInput && data.status.account) {
+        elements.signalPhoneInput.value = data.status.account;
+      }
+      if (data.status.connected) {
+        if (elements.signalStatusBadge) {
+          elements.signalStatusBadge.textContent = 'Connected (Active)';
+          elements.signalStatusBadge.className = 'status-badge connected';
+        }
+        if (elements.btnDisconnectSignal) elements.btnDisconnectSignal.classList.remove('hidden');
+      }
+    }
+  } catch (e) {
+    console.warn('Could not fetch Signal status', e);
+  }
 }
 
 // ==========================================================================

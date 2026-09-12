@@ -8,6 +8,9 @@ require('dotenv').config();
 const { initDatabase } = require('./db/database');
 const apiRoutes = require('./routes/api');
 const decisionEngine = require('./services/decisionEngine');
+const signalService = require('./services/signalService');
+
+signalService.setDecisionEngine(decisionEngine);
 
 const app = express();
 const server = http.createServer(app);
@@ -28,8 +31,30 @@ app.use('/api', apiRoutes);
 
 // WebSocket connection handling
 wss.on('connection', (ws) => {
+  ws.on('error', (err) => console.warn('[WS Connection Error]:', err.message));
   decisionEngine.registerWebSocket(ws);
-  ws.send(JSON.stringify({ event: 'connected', message: 'GhostReply Realtime Stream Ready', timestamp: new Date().toISOString() }));
+  try {
+    ws.send(JSON.stringify({ event: 'connected', message: 'GhostReply Realtime Stream Ready', timestamp: new Date().toISOString() }));
+  } catch (e) {
+    console.warn('[WS Initial Send Error]:', e.message);
+  }
+});
+
+wss.on('error', (err) => {
+  console.warn('[WebSocket Server Error]:', err.message);
+});
+
+server.on('error', (err) => {
+  console.error('[HTTP Server Error]:', err.message);
+});
+
+// Process-level crash protection
+process.on('uncaughtException', (err) => {
+  console.error('[Process Error] Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Process Error] Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
 // Fallback to index.html for SPA
