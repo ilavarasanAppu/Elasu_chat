@@ -427,16 +427,13 @@ async function seedInitialData() {
 }
 
 async function seedConnectedAccounts() {
-  const existing = await allAsync(`SELECT id FROM connected_accounts`);
-  if (existing && existing.length > 0) return;
-
   const defaultAccounts = [
     {
       id: 'acc_wa_primary',
       platform: 'whatsapp',
       account_name: 'Personal WhatsApp',
       identifier: '+1 (555) 234-5678',
-      credentials: JSON.stringify({ session_dir: 'whatsapp_sessions/acc_wa_primary' }),
+      credentials: JSON.stringify({ session_dir: 'credentials/whatsapp/acc_wa_primary' }),
       mode: 'personal',
       auto_reply: 1,
       status: 'connected',

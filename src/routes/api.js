@@ -13,6 +13,7 @@ const telegramService = require('../services/telegramService');
 const signalService = require('../services/signalService');
 const voiceService = require('../services/voiceService');
 const accountService = require('../services/accountService');
+const credentialService = require('../services/credentialService');
 
 // Multer memory storage for chat & doc uploads
 const upload = multer({ storage: multer.memoryStorage() });
@@ -115,6 +116,13 @@ router.post('/settings', async (req, res) => {
         `INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)`,
         [key, String(value)]
       );
+
+      // Persist credentials in local credentials folder
+      if (key === 'telegram_bot_token' && value) {
+        credentialService.saveTelegramToken('default', String(value));
+      } else if (key.endsWith('_api_key') && value) {
+        credentialService.saveApiKey(key.replace('_api_key', ''), String(value));
+      }
     }
     const settings = await llmService.getSettings();
     res.json({ success: true, message: 'Settings updated successfully', settings });
@@ -791,8 +799,9 @@ router.post('/integrations/telegram/start', async (req, res) => {
       return res.status(400).json(verifyResult);
     }
 
-    // Persist token in DB settings
+    // Persist token in DB settings and local credentials/ folder
     await runAsync(`INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('telegram_bot_token', ?, CURRENT_TIMESTAMP)`, [token.trim()]);
+    credentialService.saveTelegramToken(accountId, token.trim());
 
     // Upsert or update connected_accounts
     const botUser = verifyResult.bot?.username ? `@${verifyResult.bot.username}` : (verifyResult.bot?.first_name || 'Bot');

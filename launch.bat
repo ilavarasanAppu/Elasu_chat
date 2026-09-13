@@ -1,15 +1,16 @@
 @echo off
+chcp 65001 >nul
 title GhostReply - Auto-Response Bot
-color 0A
+color 0B
 
 echo.
-echo  ╔════════════════════════════════════════════════════════════════╗
-echo  ║              GHOSTREPLY AUTO-RESPONSE BOT                     ║
-echo  ║          Intelligent Dual-Mode Context-Aware System           ║
-echo  ╚════════════════════════════════════════════════════════════════╝
+echo  +----------------------------------------------------------------+
+echo  ^|                  GHOSTREPLY DUAL-MODE AI BOT                   ^|
+echo  ^|           Context-Aware Real-Time Auto-Response Engine         ^|
+echo  +----------------------------------------------------------------+
 echo.
 
-:: ─── Check for Node.js ──────────────────────────────────────────────
+:: --- Check for Node.js ---
 where node >nul 2>&1
 if %ERRORLEVEL% neq 0 (
     color 0C
@@ -20,15 +21,14 @@ if %ERRORLEVEL% neq 0 (
     exit /b 1
 )
 
-:: ─── Display Node.js version ────────────────────────────────────────
+:: --- Display Node.js version ---
 for /f "tokens=*" %%v in ('node -v') do set NODE_VER=%%v
-echo  [INFO] Node.js version: %NODE_VER%
+echo  [OK] Node.js Runtime: %NODE_VER%
 
-:: ─── Install dependencies if needed ─────────────────────────────────
+:: --- Install dependencies if needed ---
 if not exist "node_modules\" (
     echo.
     echo  [SETUP] Installing dependencies... This may take a moment.
-    echo.
     call npm install
     if %ERRORLEVEL% neq 0 (
         color 0C
@@ -38,29 +38,38 @@ if not exist "node_modules\" (
         pause
         exit /b 1
     )
-    echo.
     echo  [OK] Dependencies installed successfully.
 ) else (
-    echo  [OK] Dependencies already installed.
+    echo  [OK] Dependencies verified.
 )
 
-echo.
-
-:: ─── Set default port ───────────────────────────────────────────────
+:: --- Set port & Auto-Free Port 3000 if occupied ---
 if not defined PORT set PORT=3000
 
-echo  [START] Launching GhostReply on http://localhost:%PORT%
-echo  [INFO]  Press Ctrl+C to stop the server.
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%PORT% " ^| findstr "LISTENING"') do (
+    if not "%%a"=="" (
+        echo  [INFO] Port %PORT% is currently occupied by PID %%a. Freeing port...
+        taskkill /F /PID %%a >nul 2>&1
+        timeout /t 1 /nobreak >nul 2>&1
+    )
+)
+
+echo  [OK] Port %PORT% is ready for GhostReply.
+echo.
+echo  +----------------------------------------------------------------+
+echo  ^|  >> Live Web Studio:  http://localhost:%PORT%                     ^|
+echo  ^|  >> Stop Server:      Press Ctrl+C or run stop.bat             ^|
+echo  +----------------------------------------------------------------+
 echo.
 
-:: ─── Open browser after a short delay ───────────────────────────────
+:: --- Open browser after short delay ---
 start "" cmd /c "timeout /t 2 /nobreak >nul && start http://localhost:%PORT%"
 
-:: ─── Start the server ───────────────────────────────────────────────
+:: --- Start GhostReply Server ---
 node src/server.js
 
-:: ─── Server stopped ─────────────────────────────────────────────────
+:: --- Server Shutdown ---
 echo.
-echo  [STOPPED] GhostReply server has been shut down.
+echo  [STOPPED] GhostReply server has shut down.
 echo.
 pause

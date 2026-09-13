@@ -1,4 +1,5 @@
 const { allAsync, getAsync, runAsync } = require('../db/database');
+const credentialService = require('./credentialService');
 
 class AccountService {
   /**
@@ -72,6 +73,14 @@ class AccountService {
       [id, platform.toLowerCase(), accountName.trim(), (identifier || '').trim(), credString, mode, autoReplyVal]
     );
 
+    // Sync telegram token to local credentials folder
+    if (platform.toLowerCase() === 'telegram' && credentials) {
+      const parsedCreds = typeof credentials === 'string' ? JSON.parse(credentials || '{}') : credentials;
+      if (parsedCreds?.token) {
+        credentialService.saveTelegramToken(id, parsedCreds.token);
+      }
+    }
+
     return await this.getAccountById(id);
   }
 
@@ -95,7 +104,17 @@ class AccountService {
     }
     if (updates.credentials !== undefined) {
       fields.push('credentials = ?');
-      params.push(typeof updates.credentials === 'string' ? updates.credentials : JSON.stringify(updates.credentials));
+      const credStr = typeof updates.credentials === 'string' ? updates.credentials : JSON.stringify(updates.credentials);
+      params.push(credStr);
+
+      if (existing.platform === 'telegram') {
+        try {
+          const parsedCreds = typeof updates.credentials === 'string' ? JSON.parse(updates.credentials || '{}') : updates.credentials;
+          if (parsedCreds?.token) {
+            credentialService.saveTelegramToken(id, parsedCreds.token);
+          }
+        } catch {}
+      }
     }
     if (updates.mode !== undefined) {
       fields.push('mode = ?');
@@ -169,7 +188,7 @@ class AccountService {
 
         // Auto-start Telegram bots with tokens
         if (acc.platform === 'telegram') {
-          const token = acc.credentials?.token;
+          const token = acc.credentials?.token || credentialService.getTelegramToken(acc.id) || credentialService.getTelegramToken('default');
           if (token && token.trim().length > 10) {
             console.log(`[AccountService] Auto-starting Telegram bot for account: ${acc.accountName} (${acc.identifier})`);
             const tryStart = (retries = 3) => {

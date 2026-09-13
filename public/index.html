@@ -199,43 +199,124 @@
                     <span class="online-indicator"></span>
                   </div>
                   <div class="contact-meta">
-                    <h4 id="chatContactName">Maya (Wife)</h4>
+                    <div class="contact-name-row">
+                      <h4 id="chatContactName">Maya (Wife)</h4>
+                      <button class="btn-chat-rename-trigger" id="btnRenameChatHeader" title="Rename this chat" type="button">
+                        <i data-lucide="edit-3"></i>
+                      </button>
+                    </div>
                     <span class="contact-subtitle" id="chatContactHandle">+1 (555) 234-5678 • WhatsApp</span>
                   </div>
                 </div>
 
                 <div class="chat-header-right">
-                  <!-- Mode Switcher Pill -->
-                  <div class="mode-switcher-container">
-                    <span class="mode-label">Mode:</span>
-                    <div class="mode-toggle-group">
-                      <button class="btn-mode-toggle" id="btnSetPersonal" data-mode="personal">
-                        <i data-lucide="heart"></i> Personal
-                      </button>
-                      <button class="btn-mode-toggle" id="btnSetProfessional" data-mode="professional">
-                        <i data-lucide="briefcase"></i> Professional
-                      </button>
-                    </div>
+                  <!-- Sleek Mode Switcher Pill -->
+                  <div class="trend-mode-switcher" title="Persona Response Mode">
+                    <button class="trend-mode-btn active-personal" id="btnSetPersonal" data-mode="personal" type="button">
+                      <i data-lucide="heart"></i> <span>Personal</span>
+                    </button>
+                    <button class="trend-mode-btn" id="btnSetProfessional" data-mode="professional" type="button">
+                      <i data-lucide="briefcase"></i> <span>Professional</span>
+                    </button>
                   </div>
 
-                  <!-- Chat Header Action Controls -->
-                  <div class="chat-header-actions">
-                    <!-- Toggle Auto-Reply vs Manual Only -->
-                    <button class="btn-chat-action active-ai" id="btnToggleAutoReply" title="Click to toggle: AI Auto-Reply vs Only Manual Chat" type="button">
-                      <i data-lucide="bot" id="iconAutoReply"></i>
-                      <span class="action-label" id="autoReplyStatusLabel">AI Active</span>
+                  <!-- Quick AI Auto-Reply Status Chip -->
+                  <button class="trend-ai-status-chip active-ai" id="btnToggleAutoReply" title="Click to toggle: AI Auto-Reply vs Only Manual Chat" type="button">
+                    <span class="status-pulse-dot"></span>
+                    <i data-lucide="bot" id="iconAutoReply"></i>
+                    <span class="action-label" id="autoReplyStatusLabel">AI Active</span>
+                  </button>
+
+                  <!-- Notification Mute Indicator Badge (Hidden when unmuted) -->
+                  <button class="trend-header-icon-btn hidden" id="btnToggleMute" title="Notifications are muted. Click to unmute." type="button">
+                    <i data-lucide="bell-off" id="iconMuteStatus"></i>
+                  </button>
+
+                  <!-- 3-Dot More Menu Trigger & Floating Glass Dropdown -->
+                  <div class="chat-menu-dropdown-wrapper" id="chatMenuDropdownWrapper">
+                    <button class="btn-chat-dots-menu" id="btnChatMenuTrigger" title="Chat Settings & Options" type="button" aria-haspopup="true" aria-expanded="false">
+                      <i data-lucide="more-vertical"></i>
                     </button>
 
-                    <!-- Toggle Notifications (Mute/Unmute) -->
-                    <button class="btn-chat-action" id="btnToggleMute" title="Toggle Notifications (Mute / Unmute)" type="button">
-                      <i data-lucide="bell" id="iconMuteStatus"></i>
-                    </button>
+                    <!-- Trending Glassmorphic 3-Dot Dropdown Menu -->
+                    <div class="trend-dropdown-menu hidden" id="chatDropdownMenu">
+                      <div class="trend-dropdown-header">
+                        <div class="dropdown-header-name" id="menuContactName">Maya (Wife)</div>
+                        <div class="dropdown-header-status" id="menuContactSubtitle">WhatsApp • Personal</div>
+                      </div>
 
-                    <!-- Open Chat Customization / Settings Modal -->
-                    <button class="btn-chat-action" id="btnOpenChatSettings" title="Chat Settings: Font, Theme, Wallpaper, Clear, Delete" type="button">
-                      <i data-lucide="sliders"></i>
-                      <span>Settings</span>
-                    </button>
+                      <div class="trend-dropdown-divider"></div>
+
+                      <div class="trend-dropdown-list">
+                        <!-- 1. Rename Chat -->
+                        <button class="trend-dropdown-item" id="menuItemRenameChat" type="button">
+                          <span class="dropdown-item-icon icon-blue"><i data-lucide="edit-3"></i></span>
+                          <div class="dropdown-item-info">
+                            <div class="dropdown-item-title">Rename Chat</div>
+                            <div class="dropdown-item-desc">Change conversation display name</div>
+                          </div>
+                          <i data-lucide="chevron-right" class="dropdown-arrow-icon"></i>
+                        </button>
+
+                        <!-- 2. Chat Appearance & Settings (Font, Color, Wallpaper) -->
+                        <button class="trend-dropdown-item" id="btnOpenChatSettings" type="button">
+                          <span class="dropdown-item-icon icon-cyan"><i data-lucide="palette"></i></span>
+                          <div class="dropdown-item-info">
+                            <div class="dropdown-item-title">Chat Settings</div>
+                            <div class="dropdown-item-desc">Font, bubble colors & wallpaper</div>
+                          </div>
+                          <i data-lucide="chevron-right" class="dropdown-arrow-icon"></i>
+                        </button>
+
+                        <!-- 2. AI Auto-Reply Toggle -->
+                        <button class="trend-dropdown-item" id="menuItemToggleAutoReply" type="button">
+                          <span class="dropdown-item-icon icon-emerald"><i data-lucide="bot" id="menuIconAutoReply"></i></span>
+                          <div class="dropdown-item-info">
+                            <div class="dropdown-item-title" id="menuTitleAutoReply">AI Auto-Reply</div>
+                            <div class="dropdown-item-desc" id="menuDescAutoReply">Active (Click to switch to manual)</div>
+                          </div>
+                          <span class="dropdown-badge-pill pill-active" id="menuPillAutoReply">ON</span>
+                        </button>
+
+                        <!-- 3. Mute / Unmute Notifications -->
+                        <button class="trend-dropdown-item" id="menuItemToggleMute" type="button">
+                          <span class="dropdown-item-icon icon-amber"><i data-lucide="bell" id="menuIconMute"></i></span>
+                          <div class="dropdown-item-info">
+                            <div class="dropdown-item-title" id="menuTitleMute">Mute Notifications</div>
+                            <div class="dropdown-item-desc" id="menuDescMute">Silence message alert sounds</div>
+                          </div>
+                        </button>
+
+                        <!-- 4. Mode Switch (Personal / Professional) -->
+                        <button class="trend-dropdown-item" id="menuItemToggleMode" type="button">
+                          <span class="dropdown-item-icon icon-purple"><i data-lucide="sparkles"></i></span>
+                          <div class="dropdown-item-info">
+                            <div class="dropdown-item-title" id="menuTitleMode">Switch Mode</div>
+                            <div class="dropdown-item-desc" id="menuDescMode">Toggle Personal / Professional</div>
+                          </div>
+                        </button>
+
+                        <div class="trend-dropdown-divider"></div>
+
+                        <!-- 5. Clear Chat History -->
+                        <button class="trend-dropdown-item item-danger" id="menuItemClearChat" type="button">
+                          <span class="dropdown-item-icon icon-red"><i data-lucide="eraser"></i></span>
+                          <div class="dropdown-item-info">
+                            <div class="dropdown-item-title">Clear Message History</div>
+                            <div class="dropdown-item-desc">Wipe messages for this contact</div>
+                          </div>
+                        </button>
+
+                        <!-- 6. Delete Conversation -->
+                        <button class="trend-dropdown-item item-danger" id="menuItemDeleteContact" type="button">
+                          <span class="dropdown-item-icon icon-red"><i data-lucide="trash-2"></i></span>
+                          <div class="dropdown-item-info">
+                            <div class="dropdown-item-title">Delete Conversation</div>
+                            <div class="dropdown-item-desc">Remove contact and saved chat</div>
+                          </div>
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -272,24 +353,31 @@
                 <span class="voice-status-label" id="voiceStatusLabel">Listening to your voice (Tanglish / English)... Click mic again to send</span>
               </div>
 
-              <!-- Input Composer with Normal Send & Simulate Send -->
-              <div class="chat-input-bar">
-                <button class="btn btn-icon btn-mic" id="btnVoiceRecord" title="Speak to Text (Voice ASR) - Click to talk" type="button">
+              <!-- Modern Trending Input Composer with Normal Send & Simulate Send -->
+              <div class="chat-input-bar trend-input-bar">
+                <button class="btn-input-mic" id="btnVoiceRecord" title="Speak to Text (Voice ASR) - Click to talk" type="button">
                   <i data-lucide="mic"></i>
                 </button>
-                <input type="text" id="simulatedInputText" placeholder="Type message... (Enter: Normal Send to Telegram/WhatsApp API · Shift+Enter: Simulate Only)" autocomplete="off">
+                <div class="trend-input-field-wrap">
+                  <input type="text" id="simulatedInputText" placeholder="Type a message... (Enter: Normal Send · Shift+Enter: Simulate)" autocomplete="off">
+                </div>
                 
-                <!-- Normal Send: Direct Outgoing Response via Telegram / WhatsApp API -->
-                <button class="btn btn-send-normal" id="btnSendNormal" title="Normal Send (Enter): Directly sends message to Telegram / WhatsApp API for real delivery" type="button">
-                  <i data-lucide="send"></i>
-                  <span>Normal Send</span>
-                </button>
+                <!-- Trend Action Buttons: Normal Send & Simulate Send -->
+                <div class="trend-send-actions">
+                  <!-- Normal Send: Direct Outgoing Response via Telegram / WhatsApp API -->
+                  <button class="trend-btn-send-normal" id="btnSendNormal" title="Normal Send (Enter): Directly sends message to Telegram / WhatsApp API" type="button">
+                    <i data-lucide="send"></i>
+                    <span>Send</span>
+                    <span class="kbd-shortcut-badge">↵</span>
+                  </button>
 
-                <!-- Simulate Send: Incoming message from Opponent / Contact (STUDIO ONLY) -->
-                <button class="btn btn-send-simulate" id="btnSendSimulated" title="Simulate Send (Shift+Enter): Tests AI reply inside Studio ONLY — NEVER sent to Telegram API" type="button">
-                  <i data-lucide="user"></i>
-                  <span>Simulate Send</span>
-                </button>
+                  <!-- Simulate Send: Incoming message from Opponent / Contact (STUDIO ONLY) -->
+                  <button class="trend-btn-send-simulate" id="btnSendSimulated" title="Simulate Send (Shift+Enter): Tests AI reply locally — never sent to external API" type="button">
+                    <i data-lucide="sparkles"></i>
+                    <span>Simulate</span>
+                    <span class="kbd-shortcut-badge">⇧↵</span>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1483,6 +1571,11 @@
         <div class="modal-body modal-body-scroll" style="overflow-y:auto; flex:1; padding: 18px;">
           <!-- TAB 1: APPEARANCE -->
           <div class="settings-tab-pane active" id="tab-appearance">
+            <!-- Chat Display Name -->
+            <div class="form-group" style="margin-bottom:16px;">
+              <label for="settingsChatNameInput"><i data-lucide="edit-3"></i> Chat / Contact Name</label>
+              <input type="text" id="settingsChatNameInput" placeholder="Enter conversation name..." style="width:100%; padding:10px 12px; background:rgba(255,255,255,0.06); border:1px solid var(--border-subtle); border-radius:8px; color:var(--text-main); font-size:13px; font-weight:500;">
+            </div>
             <!-- Font Family Selection -->
             <div class="form-group" style="margin-bottom:16px;">
               <label><i data-lucide="type"></i> Chat Font</label>
@@ -1669,6 +1762,42 @@
         <div class="modal-footer">
           <button type="button" class="btn btn-outline" id="btnCancelChatSettings">Cancel</button>
           <button type="button" class="btn btn-primary" id="btnSaveChatSettings"><i data-lucide="check"></i> Save Chat Settings</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: RENAME CHAT DIALOG -->
+    <div class="modal-overlay hidden" id="modalRenameChat">
+      <div class="modal-card glass-card modal-rename-dialog" style="max-width: 440px;">
+        <div class="modal-header">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div class="modal-icon-badge" style="background:rgba(0, 242, 254, 0.15); color:var(--accent-cyan); width:36px; height:36px; border-radius:10px; display:flex; align-items:center; justify-content:center;">
+              <i data-lucide="edit-3" style="width:18px; height:18px;"></i>
+            </div>
+            <div>
+              <h3 style="font-size:16px; margin:0; font-weight:700;">Rename Chat</h3>
+              <span class="text-xs text-muted" id="modalRenameSubtitle">Update display name for this conversation</span>
+            </div>
+          </div>
+          <button class="btn-close-modal" id="btnCloseRenameModal" type="button"><i data-lucide="x"></i></button>
+        </div>
+        <div class="modal-body" style="padding: 18px 20px;">
+          <div class="rename-contact-preview">
+            <span id="renameModalAvatar" class="rename-avatar-box">👤</span>
+            <div class="rename-preview-meta">
+              <div id="renameModalPlatformBadge" class="rename-platform-pill">WhatsApp</div>
+              <div id="renameModalHandle" class="text-xs text-muted">+1 (555) 234-5678</div>
+            </div>
+          </div>
+          <div class="form-group" style="margin-top: 14px;">
+            <label for="renameChatInput" style="font-size:12px; font-weight:600; margin-bottom:6px; display:block; color:var(--text-main);">New Chat Name</label>
+            <input type="text" id="renameChatInput" class="input-rename-field" placeholder="Enter contact / chat name..." autocomplete="off" maxlength="80">
+            <span class="text-xs text-muted" style="margin-top:5px; display:block;">Press <strong>Enter</strong> to save or <strong>Escape</strong> to cancel.</span>
+          </div>
+        </div>
+        <div class="modal-footer" style="padding:14px 20px; display:flex; justify-content:flex-end; gap:10px;">
+          <button class="btn btn-outline" id="btnCancelRenameModal" type="button">Cancel</button>
+          <button class="btn btn-primary" id="btnSaveRenameModal" type="button"><i data-lucide="check"></i> Save Changes</button>
         </div>
       </div>
     </div>

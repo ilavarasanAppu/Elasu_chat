@@ -1,29 +1,30 @@
 @echo off
+chcp 65001 >nul
 title GhostReply - Server Stopper
 color 0E
 
 echo.
-echo  ╔════════════════════════════════════════════════════════════════╗
-echo  ║              GHOSTREPLY SERVER STOPPER                         ║
-echo  ║          Clean Shutdown for GhostReply Server                  ║
-echo  ╚════════════════════════════════════════════════════════════════╝
+echo  +----------------------------------------------------------------+
+echo  ^|                   GHOSTREPLY SERVER STOPPER                    ^|
+echo  ^|              Clean Shutdown for GhostReply Server              ^|
+echo  +----------------------------------------------------------------+
 echo.
 
 if not defined PORT set PORT=3000
 
-echo  [CHECK] Looking for GhostReply server on port %PORT%...
+echo  [CHECK] Scanning for active GhostReply server on port %PORT%...
 
 set KILLED=0
 
-REM Step 1: Request graceful HTTP shutdown if server is listening
+:: Step 1: Graceful HTTP shutdown request
 curl -s -m 2 -X POST "http://localhost:%PORT%/api/server/stop" >nul 2>&1
 if %ERRORLEVEL% equ 0 (
-    echo  [INFO] Graceful shutdown signal sent to GhostReply server.
+    echo  [INFO] Graceful shutdown signal sent to server.
     timeout /t 1 /nobreak >nul 2>&1
     set KILLED=1
 )
 
-REM Step 2: Terminate any process still actively listening on the target port
+:: Step 2: Terminate any process holding port 3000
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%PORT% " ^| findstr "LISTENING"') do (
     if not "%%a"=="" (
         echo  [INFO] Found active process on port %PORT% [PID: %%a]. Stopping...
@@ -35,7 +36,7 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%PORT% " ^| findstr "LISTEN
     )
 )
 
-REM Step 3: Check if port is now free
+:: Step 3: Verify port is now free
 timeout /t 1 /nobreak >nul 2>&1
 set STILL_RUNNING=0
 for /f "tokens=5" %%b in ('netstat -ano ^| findstr ":%PORT% " ^| findstr "LISTENING"') do (
@@ -46,13 +47,13 @@ echo.
 if "%STILL_RUNNING%"=="0" (
     if "%KILLED%"=="1" (
         color 0A
-        echo  ╔════════════════════════════════════════════════════════════════╗
-        echo  ║  [SUCCESS] GhostReply server stopped successfully!             ║
-        echo  ║            Port %PORT% is now completely free.                 ║
-        echo  ╚════════════════════════════════════════════════════════════════╝
+        echo  +----------------------------------------------------------------+
+        echo  ^|  [SUCCESS] GhostReply server stopped successfully!             ^|
+        echo  ^|            Port %PORT% is now completely free.                 ^|
+        echo  +----------------------------------------------------------------+
     ) else (
         color 0B
-        echo  [INFO] No active GhostReply server found on port %PORT%.
+        echo  [INFO] No active GhostReply server was running on port %PORT%.
         echo  [OK] Port %PORT% is already free and ready to use.
     )
 ) else (

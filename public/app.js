@@ -44,6 +44,7 @@ const elements = {
   studioContactsList: document.getElementById('studioContactsList'),
   chatAvatar: document.getElementById('chatAvatar'),
   chatContactName: document.getElementById('chatContactName'),
+  btnRenameChatHeader: document.getElementById('btnRenameChatHeader'),
   chatContactHandle: document.getElementById('chatContactHandle'),
   btnSetPersonal: document.getElementById('btnSetPersonal'),
   btnSetProfessional: document.getElementById('btnSetProfessional'),
@@ -63,11 +64,33 @@ const elements = {
   btnToggleMute: document.getElementById('btnToggleMute'),
   iconMuteStatus: document.getElementById('iconMuteStatus'),
   btnOpenChatSettings: document.getElementById('btnOpenChatSettings'),
+  // 3-Dot More Options Dropdown Menu
+  chatMenuDropdownWrapper: document.getElementById('chatMenuDropdownWrapper'),
+  btnChatMenuTrigger: document.getElementById('btnChatMenuTrigger'),
+  chatDropdownMenu: document.getElementById('chatDropdownMenu'),
+  menuContactName: document.getElementById('menuContactName'),
+  menuContactSubtitle: document.getElementById('menuContactSubtitle'),
+  menuItemRenameChat: document.getElementById('menuItemRenameChat'),
+  menuItemToggleAutoReply: document.getElementById('menuItemToggleAutoReply'),
+  menuIconAutoReply: document.getElementById('menuIconAutoReply'),
+  menuTitleAutoReply: document.getElementById('menuTitleAutoReply'),
+  menuDescAutoReply: document.getElementById('menuDescAutoReply'),
+  menuPillAutoReply: document.getElementById('menuPillAutoReply'),
+  menuItemToggleMute: document.getElementById('menuItemToggleMute'),
+  menuIconMute: document.getElementById('menuIconMute'),
+  menuTitleMute: document.getElementById('menuTitleMute'),
+  menuDescMute: document.getElementById('menuDescMute'),
+  menuItemToggleMode: document.getElementById('menuItemToggleMode'),
+  menuTitleMode: document.getElementById('menuTitleMode'),
+  menuDescMode: document.getElementById('menuDescMode'),
+  menuItemClearChat: document.getElementById('menuItemClearChat'),
+  menuItemDeleteContact: document.getElementById('menuItemDeleteContact'),
   modalChatSettings: document.getElementById('modalChatSettings'),
   btnCloseChatSettingsModal: document.getElementById('btnCloseChatSettingsModal'),
   btnCancelChatSettings: document.getElementById('btnCancelChatSettings'),
   btnSaveChatSettings: document.getElementById('btnSaveChatSettings'),
   modalSettingsContactLabel: document.getElementById('modalSettingsContactLabel'),
+  settingsChatNameInput: document.getElementById('settingsChatNameInput'),
   tabBtnAppearance: document.getElementById('tabBtnAppearance'),
   tabBtnControls: document.getElementById('tabBtnControls'),
   tabAppearance: document.getElementById('tab-appearance'),
@@ -79,6 +102,16 @@ const elements = {
   checkChatNotifications: document.getElementById('checkChatNotifications'),
   btnConfirmClearChat: document.getElementById('btnConfirmClearChat'),
   btnConfirmDeleteContact: document.getElementById('btnConfirmDeleteContact'),
+
+  // Rename Chat Modal
+  modalRenameChat: document.getElementById('modalRenameChat'),
+  btnCloseRenameModal: document.getElementById('btnCloseRenameModal'),
+  btnCancelRenameModal: document.getElementById('btnCancelRenameModal'),
+  btnSaveRenameModal: document.getElementById('btnSaveRenameModal'),
+  renameChatInput: document.getElementById('renameChatInput'),
+  renameModalAvatar: document.getElementById('renameModalAvatar'),
+  renameModalPlatformBadge: document.getElementById('renameModalPlatformBadge'),
+  renameModalHandle: document.getElementById('renameModalHandle'),
 
   // Brain Inspector
   brainModeBadge: document.getElementById('brainModeBadge'),
@@ -364,7 +397,7 @@ function handleWebSocketEvent(payload) {
       break;
 
     case 'provider_fallback_warning':
-      showHeaderToast(`⚠️ ${data.provider} failed: ${data.error || 'Connection error'}. Fell back to simulation.`, true);
+      showHeaderToast(`⚠️ Both AI models failed. Routed to Fallback Machine Learning Reply.`, true);
       break;
 
     case 'escalation_triggered':
@@ -1297,16 +1330,39 @@ function renderStudioContactsList() {
       <div class="contact-item-left">
         <div class="contact-avatar">${c.avatar || '👤'}</div>
         <div class="contact-item-info">
-          <span class="contact-item-name">${c.name}</span>
-          <span class="contact-item-tag">${c.relationship_type || 'contact'}</span>
+          <span class="contact-item-name" title="Double click to rename">${escapeHTML(c.name)}</span>
+          <span class="contact-item-tag">${escapeHTML(c.relationship_type || 'contact')}</span>
         </div>
       </div>
-      <span class="mode-badge-small ${c.mode}">${c.mode}</span>
+      <div class="contact-item-right-actions" style="display:flex;align-items:center;gap:4px;">
+        <button class="btn-thread-rename" title="Rename ${escapeHTML(c.name)}" type="button">
+          <i data-lucide="edit-3"></i>
+        </button>
+        <span class="mode-badge-small ${c.mode}">${c.mode}</span>
+      </div>
     `;
+
+    const renameBtn = item.querySelector('.btn-thread-rename');
+    if (renameBtn) {
+      renameBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openRenameModal(c.id);
+      });
+    }
+
+    const nameEl = item.querySelector('.contact-item-name');
+    if (nameEl) {
+      nameEl.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        openRenameModal(c.id);
+      });
+    }
 
     item.addEventListener('click', () => selectContact(c.id));
     elements.studioContactsList.appendChild(item);
   });
+
+  if (window.lucide) lucide.createIcons({ nodes: [elements.studioContactsList] });
 }
 
 async function selectContact(contactId) {
@@ -1380,12 +1436,15 @@ function appendMessageBubble(msg) {
   const provider = msg.provider || meta.provider;
   const model = msg.model || meta.model;
   const isFallback = msg.isFallback || meta.isFallback;
+  const isBackupModel = msg.isBackupModel || meta.isBackupModel;
   const error = msg.error || meta.error;
 
   let modelTagHtml = '';
   if (msg.direction === 'outgoing' && provider) {
     if (isFallback) {
-      modelTagHtml = `<span class="message-fallback-badge" title="Fallback Reason: ${escapeHTML(error || 'AI Provider Unavailable')}">⚠️ Fallback: ${escapeHTML(model || 'mock')}</span>`;
+      modelTagHtml = `<span class="message-fallback-badge" title="Fallback Machine Learning Reply: Both 2 AI models reached and failed (${escapeHTML(error || '2 AI models failed')})">⚡ ML Fallback</span>`;
+    } else if (isBackupModel) {
+      modelTagHtml = `<span class="message-backup-ai-tag" title="Model 1 failed; Model 2 reached and succeeded: ${escapeHTML(provider)}">🔄 2nd AI · ${escapeHTML(model || provider)}</span>`;
     } else {
       modelTagHtml = `<span class="message-model-tag" title="Generated by ${escapeHTML(provider)}">${escapeHTML(provider)}${model ? ' · ' + escapeHTML(model) : ''}</span>`;
     }
@@ -1398,7 +1457,7 @@ function appendMessageBubble(msg) {
       <span class="message-mode-tag">${msg.mode || 'bot'}</span>
       ${modelTagHtml}
       <button class="btn-msg-tts" type="button" title="Speak text (TTS Voice Rhythm)">🔊</button>
-      ${msg.direction === 'outgoing' ? '<i data-lucide="check-check" style="width:12px;height:12px;"></i>' : ''}
+      ${msg.direction === 'outgoing' ? '<i data-lucide="check-check" class="msg-read-check"></i>' : ''}
     </div>
   `;
 
@@ -1643,7 +1702,7 @@ function updateChatHeaderActionsUI(contact) {
   // Auto-Reply status (AI Active vs Manual Only)
   const isManualOnly = contact.auto_reply === 0;
   if (elements.btnToggleAutoReply) {
-    elements.btnToggleAutoReply.className = `btn-chat-action ${isManualOnly ? 'active-manual' : 'active-ai'}`;
+    elements.btnToggleAutoReply.className = `trend-ai-status-chip ${isManualOnly ? 'active-manual' : 'active-ai'}`;
     if (elements.autoReplyStatusLabel) {
       elements.autoReplyStatusLabel.textContent = isManualOnly ? 'Manual Only' : 'AI Active';
     }
@@ -1655,16 +1714,61 @@ function updateChatHeaderActionsUI(contact) {
       : 'AI Auto-Reply Active (Click to switch to Only Manual Chat)';
   }
 
-  // Mute status
+  // Mute status indicator
   const isMuted = contact.notifications_enabled === 0;
   if (elements.btnToggleMute) {
-    elements.btnToggleMute.className = `btn-chat-action ${isMuted ? 'muted' : ''}`;
+    if (isMuted) {
+      elements.btnToggleMute.classList.remove('hidden');
+    } else {
+      elements.btnToggleMute.classList.add('hidden');
+    }
     if (elements.iconMuteStatus) {
       elements.iconMuteStatus.setAttribute('data-lucide', isMuted ? 'bell-off' : 'bell');
     }
-    elements.btnToggleMute.title = isMuted 
-      ? 'Notifications Muted (Click to Unmute)' 
-      : 'Notifications Active (Click to Mute)';
+  }
+
+  // 3-Dot Menu Details
+  if (elements.menuContactName) {
+    elements.menuContactName.textContent = contact.name || 'Conversation';
+  }
+  if (elements.menuContactSubtitle) {
+    const platform = (contact.platform || 'WhatsApp').toUpperCase();
+    const mode = (contact.mode || 'Personal').toUpperCase();
+    elements.menuContactSubtitle.textContent = `${platform} • ${mode}`;
+  }
+
+  // 3-Dot Auto-Reply item
+  if (elements.menuTitleAutoReply) {
+    elements.menuTitleAutoReply.textContent = isManualOnly ? 'AI Auto-Reply (Paused)' : 'AI Auto-Reply (Active)';
+  }
+  if (elements.menuDescAutoReply) {
+    elements.menuDescAutoReply.textContent = isManualOnly ? 'Manual chat only · Click to activate AI' : 'AI responds automatically · Click to pause';
+  }
+  if (elements.menuPillAutoReply) {
+    elements.menuPillAutoReply.textContent = isManualOnly ? 'OFF' : 'ON';
+    elements.menuPillAutoReply.className = `dropdown-badge-pill ${isManualOnly ? 'pill-inactive' : 'pill-active'}`;
+  }
+  if (elements.menuIconAutoReply) {
+    elements.menuIconAutoReply.setAttribute('data-lucide', isManualOnly ? 'user-check' : 'bot');
+  }
+
+  // 3-Dot Mute item
+  if (elements.menuTitleMute) {
+    elements.menuTitleMute.textContent = isMuted ? 'Unmute Notifications' : 'Mute Notifications';
+  }
+  if (elements.menuDescMute) {
+    elements.menuDescMute.textContent = isMuted ? 'Alerts are currently silenced' : 'Silence sound and popup alerts';
+  }
+  if (elements.menuIconMute) {
+    elements.menuIconMute.setAttribute('data-lucide', isMuted ? 'bell-off' : 'bell');
+  }
+
+  // 3-Dot Mode item
+  if (elements.menuTitleMode) {
+    elements.menuTitleMode.textContent = contact.mode === 'personal' ? 'Switch to Professional Mode' : 'Switch to Personal Mode';
+  }
+  if (elements.menuDescMode) {
+    elements.menuDescMode.textContent = contact.mode === 'personal' ? 'Currently using personal texting persona' : 'Currently using professional RAG persona';
   }
 
   if (window.lucide) lucide.createIcons();
@@ -1698,11 +1802,99 @@ function applyContactChatStyles(contact) {
   );
 }
 
+// ==========================================================================
+// Chat Name Rename Management
+// ==========================================================================
+let renameTargetContactId = null;
+
+function openRenameModal(contactId) {
+  const targetId = contactId || state.activeContactId;
+  if (!targetId) return;
+  const contact = state.contacts.find(c => c.id === targetId);
+  if (!contact) return;
+
+  renameTargetContactId = contact.id;
+
+  if (elements.renameModalAvatar) elements.renameModalAvatar.textContent = contact.avatar || '👤';
+  if (elements.renameModalPlatformBadge) elements.renameModalPlatformBadge.textContent = contact.platform || 'WhatsApp';
+  if (elements.renameModalHandle) elements.renameModalHandle.textContent = `${contact.handle || 'No handle'} • ${contact.mode || 'personal'}`;
+  if (elements.renameChatInput) elements.renameChatInput.value = contact.name || '';
+
+  if (elements.modalRenameChat) {
+    elements.modalRenameChat.classList.remove('hidden');
+    setTimeout(() => {
+      if (elements.renameChatInput) {
+        elements.renameChatInput.focus();
+        elements.renameChatInput.select();
+      }
+    }, 60);
+  }
+}
+
+function closeRenameModal() {
+  if (elements.modalRenameChat) elements.modalRenameChat.classList.add('hidden');
+  renameTargetContactId = null;
+}
+
+async function handleSaveRename() {
+  if (!renameTargetContactId) return;
+  const newName = elements.renameChatInput ? elements.renameChatInput.value.trim() : '';
+  if (!newName) {
+    alert('Please enter a valid chat name.');
+    return;
+  }
+  const targetId = renameTargetContactId;
+  closeRenameModal();
+  await saveContactName(targetId, newName);
+}
+
+async function saveContactName(contactId, newName) {
+  const contact = state.contacts.find(c => c.id === contactId);
+  if (!contact) return;
+  const oldName = contact.name;
+  if (newName === oldName) return;
+
+  contact.name = newName;
+
+  // Realtime UI synchronization
+  if (contact.id === state.activeContactId) {
+    if (elements.chatContactName) elements.chatContactName.textContent = newName;
+    if (elements.menuContactName) elements.menuContactName.textContent = newName;
+    if (elements.modalSettingsContactLabel) elements.modalSettingsContactLabel.textContent = `Configuring for ${newName}`;
+    if (elements.settingsChatNameInput) elements.settingsChatNameInput.value = newName;
+  }
+
+  renderStudioContactsList();
+  renderContactsTable();
+  populatePersonaContactSelect();
+
+  try {
+    const res = await fetch(`/api/contacts/${contactId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newName })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showHeaderToast(`✓ Chat renamed to "${newName}"`);
+    } else {
+      showHeaderToast(`Error saving name: ${data.message || 'Failed'}`, true);
+    }
+  } catch (err) {
+    console.error('Error updating contact name:', err);
+    showHeaderToast(`Network error renaming chat`, true);
+  }
+}
+
 function openChatSettingsModal(contact) {
   if (!contact) return;
 
   if (elements.modalSettingsContactLabel) {
     elements.modalSettingsContactLabel.textContent = `Configuring for ${contact.name} (${contact.handle || contact.platform || 'Simulator'})`;
+  }
+
+  if (elements.settingsChatNameInput) {
+    elements.settingsChatNameInput.value = contact.name || '';
   }
 
   // Reset to Appearance tab
@@ -1827,9 +2019,163 @@ function setupChatSettingsHandlers() {
     });
   }
 
-  // 3. Open Chat Settings Modal
+  // 3. 3-Dot More Options Menu Toggle & Click Outside
+  if (elements.btnChatMenuTrigger && elements.chatDropdownMenu) {
+    elements.btnChatMenuTrigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isClosed = elements.chatDropdownMenu.classList.contains('hidden');
+      if (isClosed) {
+        if (state.activeContactId) {
+          const contact = state.contacts.find(c => c.id === state.activeContactId);
+          if (contact) updateChatHeaderActionsUI(contact);
+        }
+        elements.chatDropdownMenu.classList.remove('hidden');
+        elements.btnChatMenuTrigger.classList.add('active');
+        if (window.lucide) lucide.createIcons();
+      } else {
+        elements.chatDropdownMenu.classList.add('hidden');
+        elements.btnChatMenuTrigger.classList.remove('active');
+      }
+    });
+
+    // Close dropdown on click outside
+    document.addEventListener('click', (e) => {
+      if (elements.chatMenuDropdownWrapper && !elements.chatMenuDropdownWrapper.contains(e.target)) {
+        elements.chatDropdownMenu.classList.add('hidden');
+        elements.btnChatMenuTrigger.classList.remove('active');
+      }
+    });
+  }
+
+  // 3-Dot Menu: Rename Chat
+  if (elements.menuItemRenameChat) {
+    elements.menuItemRenameChat.addEventListener('click', () => {
+      if (elements.chatDropdownMenu) elements.chatDropdownMenu.classList.add('hidden');
+      if (elements.btnChatMenuTrigger) elements.btnChatMenuTrigger.classList.remove('active');
+      openRenameModal(state.activeContactId);
+    });
+  }
+
+  // Header Quick Rename Button
+  if (elements.btnRenameChatHeader) {
+    elements.btnRenameChatHeader.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openRenameModal(state.activeContactId);
+    });
+  }
+
+  // Clicking chat contact name also triggers rename
+  if (elements.chatContactName) {
+    elements.chatContactName.addEventListener('click', () => {
+      openRenameModal(state.activeContactId);
+    });
+  }
+
+  // Rename Chat Modal Controls
+  if (elements.btnCloseRenameModal) {
+    elements.btnCloseRenameModal.addEventListener('click', closeRenameModal);
+  }
+  if (elements.btnCancelRenameModal) {
+    elements.btnCancelRenameModal.addEventListener('click', closeRenameModal);
+  }
+  if (elements.btnSaveRenameModal) {
+    elements.btnSaveRenameModal.addEventListener('click', handleSaveRename);
+  }
+  if (elements.renameChatInput) {
+    elements.renameChatInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleSaveRename();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        closeRenameModal();
+      }
+    });
+  }
+  if (elements.modalRenameChat) {
+    elements.modalRenameChat.addEventListener('click', (e) => {
+      if (e.target === elements.modalRenameChat) {
+        closeRenameModal();
+      }
+    });
+  }
+
+  // 3-Dot Menu: Toggle Auto-Reply
+  if (elements.menuItemToggleAutoReply) {
+    elements.menuItemToggleAutoReply.addEventListener('click', () => {
+      if (elements.chatDropdownMenu) elements.chatDropdownMenu.classList.add('hidden');
+      if (elements.btnChatMenuTrigger) elements.btnChatMenuTrigger.classList.remove('active');
+      if (elements.btnToggleAutoReply) elements.btnToggleAutoReply.click();
+    });
+  }
+
+  // 3-Dot Menu: Toggle Mute
+  if (elements.menuItemToggleMute) {
+    elements.menuItemToggleMute.addEventListener('click', async () => {
+      if (elements.chatDropdownMenu) elements.chatDropdownMenu.classList.add('hidden');
+      if (elements.btnChatMenuTrigger) elements.btnChatMenuTrigger.classList.remove('active');
+      if (!state.activeContactId) return;
+      const contact = state.contacts.find(c => c.id === state.activeContactId);
+      if (!contact) return;
+
+      const newNotif = (contact.notifications_enabled === 0) ? 1 : 0;
+      contact.notifications_enabled = newNotif;
+      updateChatHeaderActionsUI(contact);
+
+      try {
+        await fetch(`/api/contacts/${contact.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ notifications_enabled: newNotif })
+        });
+        showHeaderToast(newNotif ? '🔔 Notifications unmuted for this contact' : '🔕 Contact muted (no popup or sound alerts)', false);
+      } catch (e) {
+        console.error('Error toggling notification mute', e);
+      }
+    });
+  }
+
+  // 3-Dot Menu: Toggle Mode
+  if (elements.menuItemToggleMode) {
+    elements.menuItemToggleMode.addEventListener('click', async () => {
+      if (elements.chatDropdownMenu) elements.chatDropdownMenu.classList.add('hidden');
+      if (elements.btnChatMenuTrigger) elements.btnChatMenuTrigger.classList.remove('active');
+      if (!state.activeContactId) return;
+      const contact = state.contacts.find(c => c.id === state.activeContactId);
+      if (!contact) return;
+
+      const targetMode = contact.mode === 'personal' ? 'professional' : 'personal';
+      if (targetMode === 'personal' && elements.btnSetPersonal) {
+        elements.btnSetPersonal.click();
+      } else if (targetMode === 'professional' && elements.btnSetProfessional) {
+        elements.btnSetProfessional.click();
+      }
+    });
+  }
+
+  // 3-Dot Menu: Clear Chat
+  if (elements.menuItemClearChat) {
+    elements.menuItemClearChat.addEventListener('click', () => {
+      if (elements.chatDropdownMenu) elements.chatDropdownMenu.classList.add('hidden');
+      if (elements.btnChatMenuTrigger) elements.btnChatMenuTrigger.classList.remove('active');
+      if (elements.btnConfirmClearChat) elements.btnConfirmClearChat.click();
+    });
+  }
+
+  // 3-Dot Menu: Delete Conversation
+  if (elements.menuItemDeleteContact) {
+    elements.menuItemDeleteContact.addEventListener('click', () => {
+      if (elements.chatDropdownMenu) elements.chatDropdownMenu.classList.add('hidden');
+      if (elements.btnChatMenuTrigger) elements.btnChatMenuTrigger.classList.remove('active');
+      if (elements.btnConfirmDeleteContact) elements.btnConfirmDeleteContact.click();
+    });
+  }
+
+  // 4. Open Chat Settings Modal (from 3-dot menu or direct button)
   if (elements.btnOpenChatSettings) {
     elements.btnOpenChatSettings.addEventListener('click', () => {
+      if (elements.chatDropdownMenu) elements.chatDropdownMenu.classList.add('hidden');
+      if (elements.btnChatMenuTrigger) elements.btnChatMenuTrigger.classList.remove('active');
       if (!state.activeContactId) return;
       const contact = state.contacts.find(c => c.id === state.activeContactId);
       if (!contact) return;
@@ -1920,6 +2266,18 @@ function setupChatSettingsHandlers() {
       const auto_reply = elements.checkManualChatOnly.checked ? 0 : 1;
       const notifications_enabled = elements.checkChatNotifications.checked ? 1 : 0;
 
+      // Check if chat name was updated
+      const customName = elements.settingsChatNameInput ? elements.settingsChatNameInput.value.trim() : '';
+      const nameChanged = customName && customName !== contact.name;
+      if (nameChanged) {
+        contact.name = customName;
+        if (elements.chatContactName) elements.chatContactName.textContent = customName;
+        if (elements.menuContactName) elements.menuContactName.textContent = customName;
+        renderStudioContactsList();
+        renderContactsTable();
+        populatePersonaContactSelect();
+      }
+
       // Update state
       contact.chat_font = chat_font;
       contact.chat_theme = chat_theme;
@@ -1938,6 +2296,7 @@ function setupChatSettingsHandlers() {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            name: contact.name,
             chat_font,
             chat_theme,
             chat_background,
@@ -2308,11 +2667,18 @@ function renderContactsTable() {
       </td>
       <td><span class="text-sm">${c.delay_mode} (${c.delay_seconds}s)</span></td>
       <td>
-        <button class="btn btn-sm btn-ghost btn-delete-contact" data-id="${c.id}" style="color:var(--accent-danger);">
+        <button class="btn btn-sm btn-ghost btn-rename-contact" data-id="${c.id}" title="Rename contact">
+          <i data-lucide="edit-3"></i>
+        </button>
+        <button class="btn btn-sm btn-ghost btn-delete-contact" data-id="${c.id}" style="color:var(--accent-danger);" title="Delete contact">
           <i data-lucide="trash-2"></i>
         </button>
       </td>
     `;
+
+    tr.querySelector('.btn-rename-contact').addEventListener('click', () => {
+      openRenameModal(c.id);
+    });
 
     tr.querySelector('.contact-mode-select').addEventListener('change', async (e) => {
       await updateContactMode(c.id, e.target.value);

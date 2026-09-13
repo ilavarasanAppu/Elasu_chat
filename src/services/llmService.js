@@ -25,62 +25,217 @@ class LLMService {
   }
 
   /**
-   * Unified Dispatcher for LLM Providers
-   * @param {Object} params 
-   * @param {string} params.system - System Prompt
-   * @param {string} params.user - User message
-   * @param {Array} params.history - Array of {role: 'user'|'assistant', content: string}
-   * @param {number} params.temperature - Temperature (0.0 - 1.0)
-   * @param {number} params.max_tokens - Max tokens
-   * @param {string} params.mode - 'personal' or 'professional'
-   * @param {Object} params.extraContext - context info
+   * Helper to invoke any specific AI provider by name
+   */
+  async invokeProvider(providerName, { system, user, history = [], temperature = 0.7, max_tokens = 300, mode = 'personal', extraContext = {}, settings = {}, modelOverride = null }) {
+    const activeSettings = { ...settings };
+    const p = (providerName || '').toLowerCase();
+    if (modelOverride) {
+      activeSettings[`${p}_model`] = modelOverride;
+    }
+
+    switch (p) {
+      case 'ollama':
+        return await this.callOllama({ system, user, history, temperature, max_tokens, settings: activeSettings, extraContext });
+      case 'lmstudio':
+        return await this.callLMStudio({ system, user, history, temperature, max_tokens, settings: activeSettings });
+      case 'openai':
+        return await this.callOpenAI({ system, user, history, temperature, max_tokens, settings: activeSettings });
+      case 'gemini':
+        return await this.callGemini({ system, user, history, temperature, max_tokens, settings: activeSettings });
+      case 'openrouter':
+        return await this.callOpenRouter({ system, user, history, temperature, max_tokens, settings: activeSettings });
+      case 'nvidia':
+        return await this.callNvidia({ system, user, history, temperature, max_tokens, settings: activeSettings });
+      case 'mock':
+        return await this.callSmartMock({ system, user, history, mode, extraContext, settings: activeSettings });
+      default:
+        throw new Error(`Unsupported AI provider: "${providerName}"`);
+    }
+  }
+
+  /**
+   * Resolve the 2nd AI backup model candidate to use if the 1st AI model fails
+   */
+  getSecondaryAICandidate(primaryProvider, settings) {
+    const primary = (primaryProvider || '').toLowerCase();
+
+    // 1. Explicit backup provider configured in settings
+    if (settings.backup_provider && settings.backup_provider.toLowerCase() !== primary && settings.backup_provider !== 'mock') {
+      const bp = settings.backup_provider.toLowerCase();
+      return {
+        provider: bp,
+        model: settings.backup_model || settings[`${bp}_model`] || null
+      };
+    }
+
+    // 2. Discover configured secondary cloud or local provider based on API keys / endpoints
+    const candidates = [];
+
+    // Google Gemini (high availability, fast latency)
+    if (primary !== 'gemini' && settings.gemini_api_key && settings.gemini_api_key.trim()) {
+      candidates.push({
+        provider: 'gemini',
+        model: (settings.gemini_model || 'gemini-2.5-flash').replace(/^models\//, '')
+      });
+    }
+
+    // OpenRouter (multi-model gateway)
+    if (primary !== 'openrouter' && settings.openrouter_api_key && settings.openrouter_api_key.trim()) {
+      candidates.push({
+        provider: 'openrouter',
+        model: settings.openrouter_model || 'meta-llama/llama-3.3-70b-instruct'
+      });
+    }
+
+    // OpenAI Compatible
+    if (primary !== 'openai' && settings.openai_api_key && settings.openai_api_key.trim()) {
+      candidates.push({
+        provider: 'openai',
+        model: settings.openai_model || 'gpt-4o-mini'
+      });
+    }
+
+    // NVIDIA NIM
+    if (primary !== 'nvidia' && settings.nvidia_api_key && settings.nvidia_api_key.trim()) {
+      candidates.push({
+        provider: 'nvidia',
+        model: settings.nvidia_model || 'meta/llama-3.1-70b-instruct'
+      });
+    }
+
+    // Local Ollama (if primary is cloud)
+    if (primary !== 'ollama' && settings.ollama_endpoint && settings.ollama_endpoint.trim()) {
+      candidates.push({
+        provider: 'ollama',
+        model: settings.ollama_model || 'llama3.2:latest'
+      });
+    }
+
+    // Local LM Studio
+    if (primary !== 'lmstudio' && settings.lmstudio_endpoint && settings.lmstudio_endpoint.trim()) {
+      candidates.push({
+        provider: 'lmstudio',
+        model: settings.lmstudio_model || 'local-model'
+      });
+    }
+
+    if (candidates.length > 0) {
+      return candidates[0];
+    }
+
+    // 3. Fallback to secondary alternate model on the SAME provider
+    if (primary === 'gemini') {
+      const cur = (settings.gemini_model || 'gemini-3.8-flash').replace(/^models\//, '');
+      const alt = (cur === 'gemini-2.5-flash') ? 'gemini-3.8-flash' : 'gemini-2.5-flash';
+      return { provider: 'gemini', model: alt };
+    }
+
+    if (primary === 'ollama') {
+      const cur = settings.ollama_model || 'lfm2.5:ela';
+      const alt = (cur === 'llama3.2:latest' || cur === 'llama3.2') ? 'nemotron-3-ultra:cloud' : 'llama3.2:latest';
+      return { provider: 'ollama', model: alt };
+    }
+
+    if (primary === 'openrouter') {
+      const cur = settings.openrouter_model || '';
+      const alt = cur.includes('llama') ? 'google/gemini-2.0-flash-exp:free' : 'meta-llama/llama-3.3-70b-instruct';
+      return { provider: 'openrouter', model: alt };
+    }
+
+    return null;
+  }
+
+  /**
+   * Unified Dispatcher for LLM Providers with 2-AI-Model Fallback Pipeline
+   * Route: Attempts AI Model 1 -> If failed, attempts AI Model 2 -> If both fail, routes to Fallback Machine Learning Reply.
    */
   async generateResponse({ system, user, history = [], temperature = 0.7, max_tokens = 300, mode = 'personal', extraContext = {} }) {
     const settings = await this.getSettings();
-    const provider = settings.active_provider || 'mock';
+    const primaryProvider = (settings.active_provider || 'mock').toLowerCase();
 
-    try {
-      let res;
-      switch (provider.toLowerCase()) {
-        case 'ollama':
-          res = await this.callOllama({ system, user, history, temperature, max_tokens, settings, extraContext });
-          break;
-        case 'lmstudio':
-          res = await this.callLMStudio({ system, user, history, temperature, max_tokens, settings });
-          break;
-        case 'openai':
-          res = await this.callOpenAI({ system, user, history, temperature, max_tokens, settings });
-          break;
-        case 'gemini':
-          res = await this.callGemini({ system, user, history, temperature, max_tokens, settings });
-          break;
-        case 'openrouter':
-          res = await this.callOpenRouter({ system, user, history, temperature, max_tokens, settings });
-          break;
-        case 'nvidia':
-          res = await this.callNvidia({ system, user, history, temperature, max_tokens, settings });
-          break;
-        case 'mock':
-        default:
-          res = await this.callSmartMock({ system, user, history, mode, extraContext, settings });
-          break;
-      }
+    // If user explicitly configured mock / smart fallback as primary
+    if (primaryProvider === 'mock') {
+      const res = await this.callSmartMock({ system, user, history, mode, extraContext, settings });
       return {
         ...res,
         text: this.cleanOutput(res.text)
       };
-    } catch (err) {
-      const detailedError = err.response?.data?.error?.message || err.message;
-      console.warn(`[LLMService] Provider ${provider} failed (${detailedError}). Falling back to Smart Fallback Engine...`);
-      const fallbackResponse = await this.callSmartMock({ system, user, history, mode, extraContext, settings });
-      return {
-        text: this.cleanOutput(fallbackResponse.text),
-        provider: `${provider} (Fallback: ${detailedError})`,
-        model: 'smart-fallback',
-        isFallback: true,
-        error: detailedError
-      };
     }
+
+    const primaryModel = settings[`${primaryProvider}_model`] || 'default';
+    let error1 = null;
+    let error2 = null;
+
+    // ── STAGE 1: Attempt AI Model 1 (Primary) ──────────────────────────────────
+    try {
+      console.log(`[LLMService] Attempting AI Model 1: ${primaryProvider} (${primaryModel}), min timeout 20s...`);
+      const res1 = await this.invokeProvider(primaryProvider, {
+        system, user, history, temperature, max_tokens, mode, extraContext, settings
+      });
+      if (res1 && res1.text && res1.text.trim()) {
+        return {
+          ...res1,
+          text: this.cleanOutput(res1.text),
+          aiAttempt: 1
+        };
+      }
+      throw new Error(`AI Model 1 (${primaryProvider}) produced empty reply`);
+    } catch (err) {
+      error1 = err.response?.data?.error?.message || err.message;
+      console.warn(`[LLMService] ⚠️ AI Model 1 (${primaryProvider}/${primaryModel}) failed: ${error1}`);
+    }
+
+    // ── STAGE 2: Attempt AI Model 2 (Secondary Fallback AI Model) ──────────────
+    const secondary = this.getSecondaryAICandidate(primaryProvider, settings);
+    if (secondary) {
+      const secondaryProvider = secondary.provider;
+      const secondaryModel = secondary.model || settings[`${secondaryProvider}_model`] || 'default';
+      try {
+        console.log(`[LLMService] Routing to AI Model 2: ${secondaryProvider} (${secondaryModel}), min timeout 20s...`);
+        const res2 = await this.invokeProvider(secondaryProvider, {
+          system, user, history, temperature, max_tokens, mode, extraContext, settings, modelOverride: secondaryModel
+        });
+        if (res2 && res2.text && res2.text.trim()) {
+          console.log(`[LLMService] ✓ AI Model 2 (${secondaryProvider}/${secondaryModel}) succeeded after Model 1 failed!`);
+          return {
+            ...res2,
+            text: this.cleanOutput(res2.text),
+            provider: `${res2.provider || secondaryProvider} (2nd AI Model Fallback, after ${primaryProvider} failed)`,
+            model: secondaryModel,
+            isBackupModel: true,
+            aiAttempt: 2,
+            model1Error: error1
+          };
+        }
+        throw new Error(`AI Model 2 (${secondaryProvider}) produced empty reply`);
+      } catch (err2) {
+        error2 = err2.response?.data?.error?.message || err2.message;
+        console.warn(`[LLMService] ⚠️ AI Model 2 (${secondaryProvider}/${secondaryModel}) failed: ${error2}`);
+      }
+    } else {
+      error2 = 'No secondary AI model available';
+    }
+
+    // ── STAGE 3: Both AI Models Failed -> Fallback Machine Learning Reply ───────
+    console.warn(`[LLMService] 🚨 Both 2 AI models reached and both failed!`);
+    console.warn(`[LLMService]   • Model 1 (${primaryProvider}): ${error1}`);
+    console.warn(`[LLMService]   • Model 2: ${error2}`);
+    console.warn(`[LLMService]   -> Routing to Fallback Machine Learning Reply (Smart Mock Heuristic)...`);
+
+    const fallbackResponse = await this.callSmartMock({ system, user, history, mode, extraContext, settings });
+    const detailedSummary = `Both 2 AI Models Failed (Model 1 [${primaryProvider}]: ${error1} | Model 2: ${error2})`;
+
+    return {
+      text: this.cleanOutput(fallbackResponse.text),
+      provider: `Smart Fallback Engine (Both AI Models Failed)`,
+      model: 'fallback-machine-learning',
+      isFallback: true,
+      error: detailedSummary,
+      model1Error: error1,
+      model2Error: error2,
+      aiAttempt: 3
+    };
   }
 
   // 1. Ollama Integration (Supports OpenAI compatible endpoint and native /api/chat)
@@ -93,16 +248,16 @@ class LLMService {
     history.forEach(h => messages.push({ role: h.role || (h.direction === 'incoming' ? 'user' : 'assistant'), content: h.text || h.content }));
     messages.push({ role: 'user', content: user });
 
-    // Quick Answer Reply Optimization: fast timeout so user doesn't wait minutes if remote cloud model is queueing
+    // Quick Answer Reply Optimization: minimum 20s (20000ms) timeout so models have time to infer
     const isQuickMode = (settings.response_speed_mode || 'quick') === 'quick' || extraContext.isQuickMode;
-    const requestTimeout = isQuickMode ? 4000 : 60000;
+    const requestTimeout = Math.max(20000, isQuickMode ? 20000 : 60000);
     const numPredict = isQuickMode ? Math.min(max_tokens || 80, 80) : (max_tokens || 150);
 
     // Function to query available installed models from Ollama /api/tags
     const getInstalledModels = async () => {
       try {
         const baseEp = endpoint.replace(/\/v1$/, '');
-        const res = await axios.get(`${baseEp}/api/tags`, { timeout: 4000 });
+        const res = await axios.get(`${baseEp}/api/tags`, { timeout: 10000 });
         return (res.data?.models || []).map(m => m.name);
       } catch {
         return [];

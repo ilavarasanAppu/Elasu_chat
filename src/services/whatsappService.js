@@ -9,6 +9,7 @@ const QRCode = require('qrcode');
 const path = require('path');
 const fs = require('fs');
 const { getAsync, runAsync, allAsync } = require('../db/database');
+const credentialService = require('./credentialService');
 
 class WhatsAppService {
   constructor() {
@@ -21,7 +22,7 @@ class WhatsAppService {
     this.activePairingPhone = null;
     this.sessionInfo = null;
     this.decisionEngine = null;
-    this.sessionDir = path.join(__dirname, '../../whatsapp_sessions');
+    this.sessionDir = credentialService.getWhatsAppDir();
     this.isConnecting = false;
 
     if (!fs.existsSync(this.sessionDir)) {

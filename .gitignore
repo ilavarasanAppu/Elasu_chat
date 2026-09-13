@@ -1,5 +1,7 @@
 node_modules/
 .env
+.env.*
+*.env
 .DS_Store
 *.log
 npm-debug.log*
@@ -7,3 +9,27 @@ yarn-debug.log*
 yarn-error.log*
 .vscode/
 .idea/
+
+# Local Credentials & Secrets (DO NOT COMMIT OR PUSH)
+credentials/
+credentials/*
+whatsapp_sessions/
+whatsapp_sessions/*
+tokens/
+secrets/
+
+# Databases & State Files
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+ghostreply.db*
+
+# Cryptographic Keys & Certificates
+*.pem
+*.key
+*.cert
+*.crt
+*.p12
+*.pfx

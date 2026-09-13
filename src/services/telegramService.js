@@ -1,5 +1,6 @@
 const axios = require('axios');
 const { getAsync, runAsync } = require('../db/database');
+const credentialService = require('./credentialService');
 
 class TelegramService {
   constructor() {
@@ -70,16 +71,23 @@ class TelegramService {
    * Start polling for a specific bot account in the pool
    */
   async startBot({ accountId = 'default', token, accountName = 'Telegram Bot', mode = 'personal', autoReply = true, onMessageCallback = null }) {
-    if (!token || token.trim().length < 10) {
+    let resolvedToken = token;
+    if (!resolvedToken || typeof resolvedToken !== 'string' || resolvedToken.trim().length < 10) {
+      resolvedToken = credentialService.getTelegramToken(accountId) || credentialService.getTelegramToken('default');
+    }
+    if (!resolvedToken || resolvedToken.trim().length < 10) {
       throw new Error('Valid Telegram Bot Token is required');
     }
-    const cleanToken = token.trim();
+    const cleanToken = resolvedToken.trim();
 
     // Verify token first
     const verifyRes = await this.verifyBotToken(cleanToken);
     if (!verifyRes.success) {
       throw new Error(`Telegram verification failed: ${verifyRes.message}`);
     }
+
+    // Persist token in local credentials/ folder
+    credentialService.saveTelegramToken(accountId, cleanToken);
 
     // Stop existing instance for this account if running
     this.stopBot(accountId);
@@ -239,12 +247,17 @@ class TelegramService {
       }
     }
 
-    // 2. Fallback to settings or connected_accounts if botPool doesn't have an active instance
+    // 2. Fallback to credentialService, settings, or connected_accounts if botPool doesn't have an active instance
     let token = botEntry?.token;
+    if (!token) {
+      token = credentialService.getTelegramToken(accountId) || credentialService.getTelegramToken('default');
+    }
+
     if (!token) {
       const row = await getAsync(`SELECT value FROM settings WHERE key = 'telegram_bot_token'`);
       if (row && row.value && row.value.trim().length > 10) {
         token = row.value.trim();
+        credentialService.saveTelegramToken(accountId, token);
       }
     }
 
@@ -253,7 +266,10 @@ class TelegramService {
       if (accRow && accRow.credentials) {
         try {
           const creds = JSON.parse(accRow.credentials);
-          if (creds.token) token = creds.token.trim();
+          if (creds.token) {
+            token = creds.token.trim();
+            credentialService.saveTelegramToken(accountId, token);
+          }
         } catch {}
       }
     }

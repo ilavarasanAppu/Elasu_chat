@@ -282,7 +282,11 @@ class DecisionEngine {
       retrievedChunks: retrievedDocs.length,
       mode,
       isFallback: llmResult.isFallback || false,
-      error: llmResult.error || null
+      isBackupModel: llmResult.isBackupModel || false,
+      aiAttempt: llmResult.aiAttempt || 1,
+      error: llmResult.error || null,
+      model1Error: llmResult.model1Error || null,
+      model2Error: llmResult.model2Error || null
     });
 
     await runAsync(
@@ -305,7 +309,11 @@ class DecisionEngine {
       provider: llmResult.provider,
       model: llmResult.model,
       isFallback: llmResult.isFallback || false,
+      isBackupModel: llmResult.isBackupModel || false,
+      aiAttempt: llmResult.aiAttempt || 1,
       error: llmResult.error || null,
+      model1Error: llmResult.model1Error || null,
+      model2Error: llmResult.model2Error || null,
       processingTimeMs: Date.now() - startTime,
       delaySimulatedMs: delayMs,
       timestamp: new Date().toISOString()
@@ -318,7 +326,8 @@ class DecisionEngine {
         contactName: contact.name,
         provider: llmResult.provider,
         error: llmResult.error,
-        model: llmResult.model
+        model: llmResult.model,
+        aiAttempt: llmResult.aiAttempt || 3
       });
     }
 
