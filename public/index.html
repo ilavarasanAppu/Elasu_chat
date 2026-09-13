@@ -57,6 +57,12 @@
             <button class="header-btn-refresh" id="headerReloadModelsBtn" title="Reload Models from Provider API" type="button">
               <i data-lucide="rotate-cw"></i>
             </button>
+            <button class="header-btn-refresh" id="headerCustomModelBtn" title="Define / Enter Custom or Latest Model" type="button">
+              <i data-lucide="edit-3"></i>
+            </button>
+            <button class="header-btn-refresh header-btn-test-ai" id="headerTestAiBtn" title="Test Active AI Model Reply & Latency" type="button">
+              <i data-lucide="activity"></i>
+            </button>
           </div>
 
           <div class="header-select-group header-lang-group" title="Preferred Language & Code-Switching">
@@ -198,15 +204,37 @@
                   </div>
                 </div>
 
-                <!-- Mode Switcher Pill -->
-                <div class="mode-switcher-container">
-                  <span class="mode-label">Mode:</span>
-                  <div class="mode-toggle-group">
-                    <button class="btn-mode-toggle" id="btnSetPersonal" data-mode="personal">
-                      <i data-lucide="heart"></i> Personal
+                <div class="chat-header-right">
+                  <!-- Mode Switcher Pill -->
+                  <div class="mode-switcher-container">
+                    <span class="mode-label">Mode:</span>
+                    <div class="mode-toggle-group">
+                      <button class="btn-mode-toggle" id="btnSetPersonal" data-mode="personal">
+                        <i data-lucide="heart"></i> Personal
+                      </button>
+                      <button class="btn-mode-toggle" id="btnSetProfessional" data-mode="professional">
+                        <i data-lucide="briefcase"></i> Professional
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Chat Header Action Controls -->
+                  <div class="chat-header-actions">
+                    <!-- Toggle Auto-Reply vs Manual Only -->
+                    <button class="btn-chat-action active-ai" id="btnToggleAutoReply" title="Click to toggle: AI Auto-Reply vs Only Manual Chat" type="button">
+                      <i data-lucide="bot" id="iconAutoReply"></i>
+                      <span class="action-label" id="autoReplyStatusLabel">AI Active</span>
                     </button>
-                    <button class="btn-mode-toggle" id="btnSetProfessional" data-mode="professional">
-                      <i data-lucide="briefcase"></i> Professional
+
+                    <!-- Toggle Notifications (Mute/Unmute) -->
+                    <button class="btn-chat-action" id="btnToggleMute" title="Toggle Notifications (Mute / Unmute)" type="button">
+                      <i data-lucide="bell" id="iconMuteStatus"></i>
+                    </button>
+
+                    <!-- Open Chat Customization / Settings Modal -->
+                    <button class="btn-chat-action" id="btnOpenChatSettings" title="Chat Settings: Font, Theme, Wallpaper, Clear, Delete" type="button">
+                      <i data-lucide="sliders"></i>
+                      <span>Settings</span>
                     </button>
                   </div>
                 </div>
@@ -244,14 +272,22 @@
                 <span class="voice-status-label" id="voiceStatusLabel">Listening to your voice (Tanglish / English)... Click mic again to send</span>
               </div>
 
-              <!-- Input Composer -->
+              <!-- Input Composer with Normal Send & Simulate Send -->
               <div class="chat-input-bar">
                 <button class="btn btn-icon btn-mic" id="btnVoiceRecord" title="Speak to Text (Voice ASR) - Click to talk" type="button">
                   <i data-lucide="mic"></i>
                 </button>
-                <input type="text" id="simulatedInputText" placeholder="Type or click 🎙️ mic to speak in Tanglish/English..." autocomplete="off">
-                <button class="btn btn-primary" id="btnSendSimulated">
+                <input type="text" id="simulatedInputText" placeholder="Type message... (Enter: Normal Send to Telegram/WhatsApp API · Shift+Enter: Simulate Only)" autocomplete="off">
+                
+                <!-- Normal Send: Direct Outgoing Response via Telegram / WhatsApp API -->
+                <button class="btn btn-send-normal" id="btnSendNormal" title="Normal Send (Enter): Directly sends message to Telegram / WhatsApp API for real delivery" type="button">
                   <i data-lucide="send"></i>
+                  <span>Normal Send</span>
+                </button>
+
+                <!-- Simulate Send: Incoming message from Opponent / Contact (STUDIO ONLY) -->
+                <button class="btn btn-send-simulate" id="btnSendSimulated" title="Simulate Send (Shift+Enter): Tests AI reply inside Studio ONLY — NEVER sent to Telegram API" type="button">
+                  <i data-lucide="user"></i>
                   <span>Simulate Send</span>
                 </button>
               </div>
@@ -505,12 +541,14 @@
                       <i data-lucide="download-cloud"></i> Load Models
                     </button>
                     <select id="cfg_gemini_model" class="model-dropdown">
-                      <option value="gemini-1.5-flash">gemini-1.5-flash (Fast & Accurate)</option>
-                      <option value="gemini-1.5-pro">gemini-1.5-pro (Deep Reasoning)</option>
-                      <option value="gemini-2.0-flash-exp">gemini-2.0-flash-exp (Experimental)</option>
+                      <option value="gemini-3.8-flash">Gemini 3.8 Flash (Latest Flagship)</option>
+                      <option value="gemini-3.7-flash">Gemini 3.7 Flash (Hybrid Reasoning)</option>
+                      <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (Low Latency)</option>
+                      <option value="gemini-2.5-flash">Gemini 2.5 Flash (Stable)</option>
+                      <option value="gemini-flash-latest">Gemini Flash Latest</option>
                     </select>
                   </div>
-                  <input type="text" id="cfg_gemini_model_custom" class="model-custom-input" placeholder="Or type custom model name...">
+                  <input type="text" id="cfg_gemini_model_custom" class="model-custom-input" placeholder="Or type custom model name (e.g. gemini-3.8-flash)...">
                 </div>
                 <div class="provider-status-msg" id="status_gemini"></div>
                 <button class="btn btn-sm btn-select-provider" data-select="gemini">Set as Active Provider</button>
@@ -951,12 +989,32 @@
           </div>
         </section>
 
-        <!-- VIEW 7: INTEGRATIONS (WHATSAPP / TELEGRAM) -->
+        <!-- VIEW 7: INTEGRATIONS (WHATSAPP / TELEGRAM / SIGNAL / MULTI-ACCOUNT) -->
         <section id="view-integrations" class="view-panel">
           <div class="view-header">
             <div>
-              <h2><i data-lucide="plug-2"></i> Messaging Platform Integrations</h2>
-              <p class="text-muted">Connect live WhatsApp Web via QR code and Telegram Bot API.</p>
+              <h2><i data-lucide="plug-2"></i> Messaging Platform Integrations & Multi-Account Manager</h2>
+              <p class="text-muted">Connect live WhatsApp Web (Pairing Code & QR), Telegram Bot API, and Signal Messenger across multiple accounts.</p>
+            </div>
+          </div>
+
+          <!-- TOP PANEL: MULTI-ACCOUNT FACILITY -->
+          <div class="glass-card" style="margin-bottom: 24px; padding: 22px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
+              <div>
+                <h3 style="display: flex; align-items: center; gap: 8px; font-size: 1.15rem; margin: 0 0 4px 0;">
+                  <i data-lucide="layers" style="color:var(--accent-cyan);"></i> Connected Channels & Multi-Account Manager
+                </h3>
+                <p class="text-muted text-sm" style="margin: 0;">Manage multiple active WhatsApp numbers, Telegram bots, and Signal channels with individual auto-reply toggles.</p>
+              </div>
+              <button class="btn btn-primary btn-sm" id="btnOpenAddAccountModal">
+                <i data-lucide="plus-circle"></i> Add Account / Bot
+              </button>
+            </div>
+
+            <div id="accountsListContainer" class="accounts-grid">
+              <!-- Populated dynamically by app.js -->
+              <div class="text-muted text-sm" style="padding: 10px;">Loading accounts...</div>
             </div>
           </div>
 
@@ -967,22 +1025,53 @@
                 <div class="integration-icon wa-bg"><i data-lucide="message-square"></i></div>
                 <div>
                   <h4>WhatsApp Web</h4>
-                  <span class="text-muted text-sm">Scan QR code with WhatsApp on your phone</span>
+                  <span class="text-muted text-sm">Official Phone Pairing Code or Multi-Device QR</span>
                 </div>
                 <span class="status-badge" id="waStatusBadge">Disconnected</span>
               </div>
 
               <div class="integration-body">
-                <div class="qr-box" id="waQrBox">
-                  <div class="qr-placeholder" id="waQrPlaceholder">
-                    <i data-lucide="qr-code"></i>
-                    <p>Click below to generate WhatsApp QR Code</p>
+                <!-- Sub-tabs: Pairing Code vs QR -->
+                <div class="integration-subtabs">
+                  <button class="integration-subtab-btn active" id="tabWaPairingBtn">🔢 8-Digit Pairing Code (Recommended)</button>
+                  <button class="integration-subtab-btn" id="tabWaQrBtn">📷 Multi-Device QR Code</button>
+                </div>
+
+                <!-- Tab 1: Phone Pairing Code -->
+                <div id="waPairingView">
+                  <div class="form-group" style="margin-bottom: 10px;">
+                    <label>Your WhatsApp Phone Number</label>
+                    <div style="display:flex; gap:8px;">
+                      <input type="text" id="waPhoneInput" placeholder="+91 98765 43210" value="+91 98765 43210" style="flex:1;">
+                      <button class="btn btn-primary" id="btnGetWaPairingCode"><i data-lucide="key"></i> Get Code</button>
+                    </div>
+                  </div>
+
+                  <div class="pairing-code-box" id="waPairingCodeBox" style="display:none;">
+                    <span class="text-xs text-muted">Enter this code in WhatsApp on your phone:</span>
+                    <div class="pairing-code-value" id="waPairingCodeDisplay">----</div>
+                    <ol class="pairing-instructions-list">
+                      <li>Open <strong>WhatsApp</strong> on your mobile phone</li>
+                      <li>Tap <strong>Settings (or ⋮) → Linked Devices → Link a Device</strong></li>
+                      <li>Tap <strong>"Link with phone number instead"</strong> at the bottom</li>
+                      <li>Type the 8-digit code shown above</li>
+                    </ol>
                   </div>
                 </div>
 
-                <div class="integration-actions">
-                  <button class="btn btn-primary" id="btnGenerateWaQR"><i data-lucide="qr-code"></i> Generate QR Code</button>
-                  <button class="btn btn-outline" id="btnConnectMockWA"><i data-lucide="check-circle"></i> Quick Simulate Connect</button>
+                <!-- Tab 2: Multi-Device QR View -->
+                <div id="waQrView" style="display:none;">
+                  <div class="qr-box" id="waQrBox">
+                    <div class="qr-placeholder" id="waQrPlaceholder">
+                      <i data-lucide="qr-code"></i>
+                      <p>Click below to generate WhatsApp QR Code</p>
+                    </div>
+                  </div>
+                  <button class="btn btn-primary" id="btnGenerateWaQR" style="width:100%; margin-bottom:10px;"><i data-lucide="qr-code"></i> Generate Real QR Code</button>
+                </div>
+
+                <div class="integration-actions" style="margin-top: 14px;">
+                  <button class="btn btn-outline" id="btnConnectMockWA"><i data-lucide="check-circle"></i> Quick Connect Simulator</button>
                   <button class="btn btn-danger hidden" id="btnDisconnectWA"><i data-lucide="power"></i> Disconnect</button>
                 </div>
               </div>
@@ -993,8 +1082,8 @@
               <div class="integration-header">
                 <div class="integration-icon tg-bg"><i data-lucide="send"></i></div>
                 <div>
-                  <h4>Telegram Bot</h4>
-                  <span class="text-muted text-sm">Connect via Telegram BotFather Token</span>
+                  <h4>Telegram Bot API</h4>
+                  <span class="text-muted text-sm">Real-time long-polling with BotFather Token</span>
                 </div>
                 <span class="status-badge" id="tgStatusBadge">Disconnected</span>
               </div>
@@ -1005,12 +1094,21 @@
                   <input type="password" id="tgBotToken" placeholder="123456789:ABCdefGhIJKlmNoPQRstuVWXyz...">
                 </div>
 
+                <div class="form-group" style="margin-top: 8px;">
+                  <label>Bot Persona Mode</label>
+                  <select id="tgBotModeSelect">
+                    <option value="personal">Personal Mode (Linguistic Mirroring & Tanglish)</option>
+                    <option value="professional">Professional Mode (RAG & Knowledge Base)</option>
+                  </select>
+                </div>
+
                 <div class="tg-status-box" id="tgStatusBox">
-                  <p class="text-muted text-sm">Create a bot using @BotFather in Telegram and paste the token above.</p>
+                  <p class="text-muted text-sm">Create a bot using @BotFather in Telegram, paste the token above, and click <strong>Verify & Start Live Bot</strong>.</p>
                 </div>
 
                 <div class="integration-actions">
-                  <button class="btn btn-primary" id="btnVerifyTgToken"><i data-lucide="link"></i> Verify & Connect Token</button>
+                  <button class="btn btn-primary" id="btnVerifyTgToken"><i data-lucide="play"></i> Verify & Start Live Bot</button>
+                  <button class="btn btn-danger hidden" id="btnStopTgBot"><i data-lucide="square"></i> Stop Bot</button>
                 </div>
               </div>
             </div>
@@ -1021,27 +1119,39 @@
                 <div class="integration-icon signal-bg"><i data-lucide="shield-check"></i></div>
                 <div>
                   <h4>Signal Messenger</h4>
-                  <span class="text-muted text-sm">Link via Signal App QR code or signal-cli daemon</span>
+                  <span class="text-muted text-sm">Link via signal-cli REST daemon or virtual session</span>
                 </div>
                 <span class="status-badge" id="signalStatusBadge">Disconnected</span>
               </div>
 
               <div class="integration-body">
-                <div class="qr-box" id="signalQrBox">
-                  <div class="qr-placeholder" id="signalQrPlaceholder">
-                    <i data-lucide="qr-code"></i>
-                    <p>Click below to generate Signal Linking Device QR</p>
+                <div id="signalDaemonBanner" class="daemon-status-banner offline">
+                  <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <strong><i data-lucide="alert-circle"></i> Signal Daemon: Offline</strong>
+                    <button class="btn btn-xs btn-outline" id="btnCheckSignalDaemon" style="padding:2px 8px;"><i data-lucide="refresh-cw"></i> Test</button>
+                  </div>
+                  <span class="text-xs">Real Signal links require signal-cli daemon. Launch with Docker:</span>
+                  <div class="cli-command-box">
+                    <span id="signalDockerCmdText">docker run -d -p 8080:8080 -v $HOME/.local/share/signal-cli:/home/.local/share/signal-cli bbernhard/signal-cli-rest-api</span>
+                    <button class="btn-copy-cmd" id="btnCopySignalCmd">Copy</button>
                   </div>
                 </div>
 
-                <div class="form-group" style="margin-top: 12px;">
-                  <label>Signal Phone / Account Number</label>
+                <div class="form-group">
+                  <label>Signal Account Number</label>
                   <input type="text" id="signalPhoneInput" placeholder="+91 98765 43210" value="+91 98765 43210">
                 </div>
 
                 <div class="form-group">
-                  <label>Signal REST / CLI Daemon Endpoint</label>
+                  <label>Signal Daemon REST Endpoint</label>
                   <input type="text" id="signalEndpointInput" placeholder="http://127.0.0.1:8080" value="http://127.0.0.1:8080">
+                </div>
+
+                <div class="qr-box" id="signalQrBox" style="margin-bottom:12px;">
+                  <div class="qr-placeholder" id="signalQrPlaceholder">
+                    <i data-lucide="qr-code"></i>
+                    <p>Click below to link Signal Device</p>
+                  </div>
                 </div>
 
                 <div class="integration-actions">
@@ -1269,6 +1379,296 @@
         <div class="modal-footer">
           <button class="btn btn-outline" id="btnCancelContactModal">Cancel</button>
           <button class="btn btn-primary" id="btnSaveNewContact">Save Contact</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: DEFINE CUSTOM MODEL -->
+    <div class="modal-overlay hidden" id="customModelModal">
+      <div class="modal-card glass-card" style="max-width: 480px;">
+        <div class="modal-header">
+          <h3><i data-lucide="sparkles"></i> Define Custom or Latest Model</h3>
+          <button class="btn-close-modal" id="btnCloseCustomModelModal"><i data-lucide="x"></i></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted" style="margin-bottom:14px;font-size:13px;line-height:1.5;">
+            Specify any latest or custom model identifier for <strong id="modalActiveProviderName" style="color:var(--accent-cyan);">Google Gemini</strong>. This model will be immediately activated, synced to the header, and saved.
+          </p>
+          <div class="form-group">
+            <label>Model Identifier</label>
+            <input type="text" id="customModelInput" placeholder="e.g. gemini-3.8-flash, gemini-3.7-flash, gemini-2.5-flash">
+            <span class="text-xs text-muted" style="margin-top:6px;display:block;">
+              Recommended active Gemini models: <code>gemini-3.8-flash</code>, <code>gemini-3.7-flash</code>, <code>gemini-3.1-flash-lite</code>, <code>gemini-2.5-flash</code>
+            </span>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline" id="btnCancelCustomModelModal">Cancel</button>
+          <button class="btn btn-primary" id="btnApplyCustomModel"><i data-lucide="check"></i> Activate Model</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: ADD NEW ACCOUNT / BOT -->
+    <div class="modal-overlay hidden" id="addAccountModal">
+      <div class="modal-card glass-card" style="max-width: 500px;">
+        <div class="modal-header">
+          <h3><i data-lucide="plus-circle" style="color:var(--accent-cyan);"></i> Add Channel Account or Bot</h3>
+          <button class="btn-close-modal" id="btnCloseAddAccountModal"><i data-lucide="x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group" style="margin-bottom: 12px;">
+            <label>Platform</label>
+            <select id="modalAccountPlatform">
+              <option value="telegram">Telegram Bot (API Token)</option>
+              <option value="whatsapp">WhatsApp Number / Session</option>
+              <option value="signal">Signal Messenger Account</option>
+            </select>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 12px;">
+            <label>Account / Bot Label</label>
+            <input type="text" id="modalAccountName" placeholder="e.g. Sales Assistant Bot, Support WhatsApp, Work Signal">
+          </div>
+
+          <div class="form-group" style="margin-bottom: 12px;">
+            <label id="modalAccountIdentifierLabel">Bot Username or Handle</label>
+            <input type="text" id="modalAccountIdentifier" placeholder="e.g. @MySupportBot or +91 98765 43210">
+          </div>
+
+          <div class="form-group" style="margin-bottom: 12px;" id="modalAccountCredGroup">
+            <label id="modalAccountCredLabel">Bot Token / Endpoint</label>
+            <input type="password" id="modalAccountCred" placeholder="Paste bot token or endpoint...">
+          </div>
+
+          <div class="form-group" style="margin-bottom: 12px;">
+            <label>Auto-Response Mode</label>
+            <select id="modalAccountMode">
+              <option value="personal">Personal Mode (Persona Mirroring & Casual Tanglish)</option>
+              <option value="professional">Professional Mode (RAG & Enterprise KB)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+              <input type="checkbox" id="modalAccountAutoReply" checked>
+              <span>Enable automatic AI replies on this channel</span>
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline" id="btnCancelAddAccountModal">Cancel</button>
+          <button class="btn btn-primary" id="btnSaveNewAccount"><i data-lucide="check"></i> Save & Connect Account</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: CHAT SETTINGS & CUSTOMIZATION (Per-Chat Appearance & Controls) -->
+    <div class="modal-overlay hidden" id="modalChatSettings">
+      <div class="modal-card glass-card modal-chat-settings" style="max-width: 620px; max-height: 90vh; display:flex; flex-direction:column;">
+        <div class="modal-header">
+          <div>
+            <h3><i data-lucide="sliders" style="color:var(--accent-cyan);"></i> Chat Box Settings</h3>
+            <span class="text-xs text-muted" id="modalSettingsContactLabel">Configuring for Maya (Wife)</span>
+          </div>
+          <button class="btn-close-modal" id="btnCloseChatSettingsModal"><i data-lucide="x"></i></button>
+        </div>
+
+        <!-- Settings Sub-Tabs -->
+        <div class="modal-tab-bar">
+          <button type="button" class="modal-tab-btn active" data-tab="tab-appearance" id="tabBtnAppearance"><i data-lucide="palette"></i> Appearance & Theme</button>
+          <button type="button" class="modal-tab-btn" data-tab="tab-controls" id="tabBtnControls"><i data-lucide="shield-check"></i> Controls & Danger Zone</button>
+        </div>
+
+        <div class="modal-body modal-body-scroll" style="overflow-y:auto; flex:1; padding: 18px;">
+          <!-- TAB 1: APPEARANCE -->
+          <div class="settings-tab-pane active" id="tab-appearance">
+            <!-- Font Family Selection -->
+            <div class="form-group" style="margin-bottom:16px;">
+              <label><i data-lucide="type"></i> Chat Font</label>
+              <div class="custom-options-grid" id="fontSelectorGrid">
+                <button type="button" class="opt-card active" data-font="Inter">
+                  <span class="opt-title" style="font-family:'Inter', sans-serif;">Inter</span>
+                  <span class="opt-desc">Modern & Clean</span>
+                </button>
+                <button type="button" class="opt-card" data-font="Roboto">
+                  <span class="opt-title" style="font-family:'Roboto', sans-serif;">Roboto</span>
+                  <span class="opt-desc">Crisp & Balanced</span>
+                </button>
+                <button type="button" class="opt-card" data-font="Outfit">
+                  <span class="opt-title" style="font-family:'Outfit', sans-serif;">Outfit</span>
+                  <span class="opt-desc">Futuristic Tech</span>
+                </button>
+                <button type="button" class="opt-card" data-font="Fira Code">
+                  <span class="opt-title" style="font-family:'Fira Code', monospace;">Fira Code</span>
+                  <span class="opt-desc">Developer Mono</span>
+                </button>
+                <button type="button" class="opt-card" data-font="Casual">
+                  <span class="opt-title" style="font-family:'Segoe UI', cursive, sans-serif;">Casual</span>
+                  <span class="opt-desc">Friendly Banter</span>
+                </button>
+                <button type="button" class="opt-card" data-font="System">
+                  <span class="opt-title">System</span>
+                  <span class="opt-desc">OS Native</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Color Theme Swatches -->
+            <div class="form-group" style="margin-bottom:16px;">
+              <label><i data-lucide="droplet"></i> Bubble Color Theme</label>
+              <div class="custom-themes-grid" id="themeSelectorGrid">
+                <button type="button" class="theme-card active" data-theme="emerald">
+                  <span class="theme-swatch" style="background: linear-gradient(135deg, #059669, #10b981);"></span>
+                  <span class="theme-name">Telegram Emerald</span>
+                </button>
+                <button type="button" class="theme-card" data-theme="whatsapp">
+                  <span class="theme-swatch" style="background: linear-gradient(135deg, #005c4b, #00a884);"></span>
+                  <span class="theme-name">WhatsApp Teal</span>
+                </button>
+                <button type="button" class="theme-card" data-theme="cyberpunk">
+                  <span class="theme-swatch" style="background: linear-gradient(135deg, #06b6d4, #8b5cf6);"></span>
+                  <span class="theme-name">Cyberpunk Neon</span>
+                </button>
+                <button type="button" class="theme-card" data-theme="sunset">
+                  <span class="theme-swatch" style="background: linear-gradient(135deg, #e11d48, #fb923c);"></span>
+                  <span class="theme-name">Sunset Rose</span>
+                </button>
+                <button type="button" class="theme-card" data-theme="ocean">
+                  <span class="theme-swatch" style="background: linear-gradient(135deg, #0284c7, #38bdf8);"></span>
+                  <span class="theme-name">Ocean Azure</span>
+                </button>
+                <button type="button" class="theme-card" data-theme="monochrome">
+                  <span class="theme-swatch" style="background: linear-gradient(135deg, #3f3f46, #71717a);"></span>
+                  <span class="theme-name">Clean Minimal</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Chat Wallpaper Background -->
+            <div class="form-group" style="margin-bottom:16px;">
+              <label><i data-lucide="image"></i> Chat Background Wallpaper</label>
+              <div class="custom-bg-grid" id="bgSelectorGrid">
+                <button type="button" class="bg-card active" data-bg="doodle">
+                  <span class="bg-preview-box chat-bg-doodle"></span>
+                  <span class="bg-name">Doodle Art</span>
+                </button>
+                <button type="button" class="bg-card" data-bg="grid">
+                  <span class="bg-preview-box chat-bg-grid"></span>
+                  <span class="bg-name">Tech Grid</span>
+                </button>
+                <button type="button" class="bg-card" data-bg="starry">
+                  <span class="bg-preview-box chat-bg-starry"></span>
+                  <span class="bg-name">Cosmic Stars</span>
+                </button>
+                <button type="button" class="bg-card" data-bg="dots">
+                  <span class="bg-preview-box chat-bg-dots"></span>
+                  <span class="bg-name">Subtle Dots</span>
+                </button>
+                <button type="button" class="bg-card" data-bg="minimal">
+                  <span class="bg-preview-box chat-bg-minimal"></span>
+                  <span class="bg-name">Solid Dark</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Font Size & Bubble Style Row -->
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:14px; margin-bottom:16px;">
+              <div class="form-group">
+                <label>Font Size</label>
+                <select id="selectChatFontSize">
+                  <option value="small">Small (12px)</option>
+                  <option value="medium" selected>Medium (13.5px)</option>
+                  <option value="large">Large (15.5px)</option>
+                  <option value="xl">Extra Large (17.5px)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Bubble Corner Radius</label>
+                <select id="selectChatBubbleStyle">
+                  <option value="rounded" selected>Modern Rounded (16px)</option>
+                  <option value="compact">Sleek Compact (8px)</option>
+                  <option value="pill">Pill Shape (24px)</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Live Chat Preview Screen -->
+            <div class="form-group">
+              <label>Live Preview</label>
+              <div class="preview-chat-container" id="previewChatContainer">
+                <div class="message-bubble incoming preview-incoming">
+                  <div>Hey! Epdi irukka? Check out the new chat style ✨</div>
+                  <div class="message-meta"><span class="message-time">10:45 AM</span></div>
+                </div>
+                <div class="message-bubble outgoing preview-outgoing">
+                  <div>Pakka! Looks crisp & responsive 👍</div>
+                  <div class="message-meta"><span class="message-time">10:46 AM</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- TAB 2: CONTROLS & DANGER ZONE -->
+          <div class="settings-tab-pane" id="tab-controls" style="display:none;">
+            <!-- Only Manual Chat Switch -->
+            <div class="control-card">
+              <div class="control-card-info">
+                <strong><i data-lucide="user-check"></i> Only Manual Chat Mode</strong>
+                <p class="text-xs text-muted">When active, GhostReply AI will NEVER automatically answer messages from this contact. You have 100% manual control over responses.</p>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="checkManualChatOnly">
+                <span class="slider round"></span>
+              </label>
+            </div>
+
+            <!-- Notifications Switch -->
+            <div class="control-card" style="margin-top:12px;">
+              <div class="control-card-info">
+                <strong><i data-lucide="bell"></i> Inbound Notifications</strong>
+                <p class="text-xs text-muted">Play notification audio and display alert toasts when new messages arrive from this contact.</p>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="checkChatNotifications" checked>
+                <span class="slider round"></span>
+              </label>
+            </div>
+
+            <hr style="border:none; border-top:1px solid var(--border-subtle); margin: 20px 0;">
+
+            <!-- Danger Zone: Clear Chat & Delete Contact -->
+            <div class="danger-zone-card">
+              <h4 style="color:#ef4444; font-size:13px; font-weight:700; margin-bottom:12px; display:flex; align-items:center; gap:6px;">
+                <i data-lucide="alert-triangle"></i> Chat Actions & Management
+              </h4>
+
+              <div class="danger-action-row">
+                <div>
+                  <strong>Clear Message History</strong>
+                  <p class="text-xs text-muted">Permanently erase all messages inside this conversation. The contact remains saved.</p>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-danger" id="btnConfirmClearChat">
+                  <i data-lucide="eraser"></i> Clear Messages
+                </button>
+              </div>
+
+              <div class="danger-action-row" style="margin-top:14px;">
+                <div>
+                  <strong>Delete Contact & Chatbox</strong>
+                  <p class="text-xs text-muted">Permanently delete this contact, personality memory, and conversation history.</p>
+                </div>
+                <button type="button" class="btn btn-sm btn-danger" id="btnConfirmDeleteContact">
+                  <i data-lucide="trash-2"></i> Delete Contact
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" id="btnCancelChatSettings">Cancel</button>
+          <button type="button" class="btn btn-primary" id="btnSaveChatSettings"><i data-lucide="check"></i> Save Chat Settings</button>
         </div>
       </div>
     </div>

@@ -40,7 +40,7 @@ class RAGService {
       .toLowerCase()
       .replace(/[^a-z0-9\s]/g, ' ')
       .split(/\s+/)
-      .filter(w => w.length > 2);
+      .filter(w => w.length >= 2);
   }
 
   /**
@@ -101,7 +101,7 @@ class RAGService {
     // Sort descending by score
     scoredChunks.sort((a, b) => b.score - a.score);
 
-    const results = scoredChunks.filter(c => c.score > 0.05).slice(0, topK);
+    const results = scoredChunks.filter(c => c.score >= 0.02).slice(0, topK);
     return results;
   }
 

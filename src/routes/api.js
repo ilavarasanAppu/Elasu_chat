@@ -1,5 +1,6 @@
 const express = require('express');
 const multer = require('multer');
+const axios = require('axios');
 const router = express.Router();
 
 const { getDb, runAsync, allAsync, getAsync } = require('../db/database');
@@ -11,6 +12,7 @@ const whatsappService = require('../services/whatsappService');
 const telegramService = require('../services/telegramService');
 const signalService = require('../services/signalService');
 const voiceService = require('../services/voiceService');
+const accountService = require('../services/accountService');
 
 // Multer memory storage for chat & doc uploads
 const upload = multer({ storage: multer.memoryStorage() });
@@ -131,6 +133,17 @@ router.post('/provider/test', async (req, res) => {
   }
 });
 
+// Test live AI model response generation & working confirmation
+router.post('/provider/test-live', async (req, res) => {
+  try {
+    const { provider, config } = req.body;
+    const result = await llmService.testLiveGeneration(provider, config);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message, isFallback: true });
+  }
+});
+
 // Fetch available models from a provider API
 router.post('/provider/models', async (req, res) => {
   try {
@@ -209,24 +222,66 @@ router.post('/contacts', async (req, res) => {
 router.put('/contacts/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, handle, avatar, mode, auto_reply, delay_mode, delay_seconds, relationship_type, escalation_contact } = req.body;
+    const { 
+      name, handle, avatar, mode, auto_reply, delay_mode, delay_seconds, relationship_type, escalation_contact,
+      notifications_enabled, chat_font, chat_theme, chat_background, chat_font_size, chat_bubble_style
+    } = req.body;
 
     const existing = await getAsync(`SELECT * FROM contacts WHERE id = ?`, [id]);
     if (!existing) return res.status(404).json({ success: false, message: 'Contact not found' });
 
+    const updatedName = name !== undefined ? name : existing.name;
+    const updatedHandle = handle !== undefined ? handle : existing.handle;
+    const updatedAvatar = avatar !== undefined ? avatar : existing.avatar;
+    const updatedMode = mode !== undefined ? mode : existing.mode;
+    const updatedAutoReply = auto_reply !== undefined ? (auto_reply ? 1 : 0) : existing.auto_reply;
+    const updatedDelayMode = delay_mode !== undefined ? delay_mode : existing.delay_mode;
+    const updatedDelaySec = delay_seconds !== undefined ? Number(delay_seconds) : existing.delay_seconds;
+    const updatedRelType = relationship_type !== undefined ? relationship_type : existing.relationship_type;
+    const updatedEscContact = escalation_contact !== undefined ? escalation_contact : existing.escalation_contact;
+    const updatedNotif = notifications_enabled !== undefined ? (notifications_enabled ? 1 : 0) : (existing.notifications_enabled !== undefined ? existing.notifications_enabled : 1);
+    const updatedFont = chat_font !== undefined ? chat_font : (existing.chat_font || 'Inter');
+    const updatedTheme = chat_theme !== undefined ? chat_theme : (existing.chat_theme || 'emerald');
+    const updatedBg = chat_background !== undefined ? chat_background : (existing.chat_background || 'doodle');
+    const updatedFontSize = chat_font_size !== undefined ? chat_font_size : (existing.chat_font_size || 'medium');
+    const updatedBubbleStyle = chat_bubble_style !== undefined ? chat_bubble_style : (existing.chat_bubble_style || 'rounded');
+
     await runAsync(
       `UPDATE contacts SET 
-        name = COALESCE(?, name),
-        handle = COALESCE(?, handle),
-        avatar = COALESCE(?, avatar),
-        mode = COALESCE(?, mode),
-        auto_reply = COALESCE(?, auto_reply),
-        delay_mode = COALESCE(?, delay_mode),
-        delay_seconds = COALESCE(?, delay_seconds),
-        relationship_type = COALESCE(?, relationship_type),
-        escalation_contact = COALESCE(?, escalation_contact)
+        name = ?,
+        handle = ?,
+        avatar = ?,
+        mode = ?,
+        auto_reply = ?,
+        delay_mode = ?,
+        delay_seconds = ?,
+        relationship_type = ?,
+        escalation_contact = ?,
+        notifications_enabled = ?,
+        chat_font = ?,
+        chat_theme = ?,
+        chat_background = ?,
+        chat_font_size = ?,
+        chat_bubble_style = ?
        WHERE id = ?`,
-      [name, handle, avatar, mode, auto_reply, delay_mode, delay_seconds, relationship_type, escalation_contact, id]
+      [
+        updatedName,
+        updatedHandle,
+        updatedAvatar,
+        updatedMode,
+        updatedAutoReply,
+        updatedDelayMode,
+        updatedDelaySec,
+        updatedRelType,
+        updatedEscContact,
+        updatedNotif,
+        updatedFont,
+        updatedTheme,
+        updatedBg,
+        updatedFontSize,
+        updatedBubbleStyle,
+        id
+      ]
     );
 
     const updated = await getAsync(`SELECT * FROM contacts WHERE id = ?`, [id]);
@@ -239,8 +294,11 @@ router.put('/contacts/:id', async (req, res) => {
 router.delete('/contacts/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    await runAsync(`DELETE FROM messages WHERE contact_id = ?`, [id]);
+    await runAsync(`DELETE FROM personality_profiles WHERE contact_id = ?`, [id]);
+    await runAsync(`DELETE FROM escalations WHERE contact_id = ?`, [id]);
     await runAsync(`DELETE FROM contacts WHERE id = ?`, [id]);
-    res.json({ success: true, message: 'Contact deleted' });
+    res.json({ success: true, message: 'Contact and all related chat history deleted successfully.' });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -251,10 +309,21 @@ router.get('/contacts/:id/messages', async (req, res) => {
   try {
     const { id } = req.params;
     const messages = await allAsync(
-      `SELECT * FROM messages WHERE contact_id = ? ORDER BY timestamp ASC LIMIT 50`,
+      `SELECT * FROM messages WHERE contact_id = ? ORDER BY timestamp ASC LIMIT 80`,
       [id]
     );
     res.json({ success: true, messages });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Clear Chat: Delete all messages for a specific contact while keeping the contact
+router.delete('/contacts/:id/messages', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await runAsync(`DELETE FROM messages WHERE contact_id = ?`, [id]);
+    res.json({ success: true, message: 'Chat history cleared successfully.' });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -453,22 +522,153 @@ router.post('/rag/test-query', async (req, res) => {
   }
 });
 
-// --- 7. Live Chat Simulation Pipeline ---
+// --- 7. Live Chat Simulation Pipeline (STUDIO ONLY - NEVER SENDS TO EXTERNAL APIS) ---
 router.post('/chat/simulate', async (req, res) => {
   try {
-    const { contactId, text, senderName, platform } = req.body;
+    const { contactId, text, senderName } = req.body;
     if (!contactId || !text) {
       return res.status(400).json({ success: false, message: 'contactId and text are required.' });
     }
 
+    // SIMULATION ONLY: This route strictly simulates incoming conversation in the studio
+    // and NEVER dispatches to external Telegram or WhatsApp APIs.
     const result = await decisionEngine.processIncomingMessage({
       contactId,
       text,
       senderName,
-      platform: platform || 'simulator'
+      platform: 'simulator'
     });
 
-    res.json({ success: true, result });
+    res.json({ success: true, simulatedOnly: true, result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// --- Normal Send: Direct Outgoing Response from Owner or AI (USES TELEGRAM/WHATSAPP APIS) ---
+router.post('/chat/send', async (req, res) => {
+  try {
+    const { contactId, text, senderName, mode } = req.body;
+    if (!contactId || !text) {
+      return res.status(400).json({ success: false, message: 'contactId and text are required.' });
+    }
+
+    const contact = await getAsync(`SELECT * FROM contacts WHERE id = ?`, [contactId]);
+    if (!contact) {
+      return res.status(404).json({ success: false, message: 'Contact not found.' });
+    }
+
+    const settings = await llmService.getSettings();
+    const effectiveSender = senderName || settings.user_name || 'GhostReply (Owner)';
+    const effectiveMode = mode || contact.mode || 'personal';
+    const messageId = `msg_owner_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const nowIso = new Date().toISOString();
+    const metadata = JSON.stringify({
+      isManual: true,
+      sender: 'owner',
+      provider: 'Owner / Direct',
+      model: 'manual-response'
+    });
+
+    // 1. Insert outgoing message in SQLite
+    await runAsync(
+      `INSERT INTO messages (id, contact_id, direction, sender_name, text, mode, metadata, status, timestamp)
+       VALUES (?, ?, 'outgoing', ?, ?, ?, ?, 'delivered', ?)`,
+      [messageId, contactId, effectiveSender, text, effectiveMode, metadata, nowIso]
+    );
+
+    // 2. Update contact last_active
+    await runAsync(`UPDATE contacts SET last_active = ? WHERE id = ?`, [nowIso, contactId]);
+
+    const payload = {
+      messageId,
+      contactId,
+      contactName: contact.name,
+      direction: 'outgoing',
+      sender_name: effectiveSender,
+      text,
+      mode: effectiveMode,
+      provider: 'Owner / Direct',
+      model: 'manual-response',
+      timestamp: nowIso
+    };
+
+    // 3. Broadcast to all active WebSockets for instant UI reflection
+    decisionEngine.broadcast('message_sent', payload);
+
+    // 4. Dispatch via Telegram Bot API or WhatsApp API if this is a real messaging platform contact
+    let telegramDispatch = { attempted: false, success: false, error: null };
+    let whatsappDispatch = { attempted: false, success: false, error: null };
+
+    // Check if this contact is a Telegram contact
+    const isTelegram = contactId.startsWith('tg_') || 
+                       contact.platform === 'telegram' || 
+                       (contact.handle && contact.handle.startsWith('tg_'));
+
+    if (isTelegram) {
+      telegramDispatch.attempted = true;
+      let tgChatId = null;
+      if (contactId.startsWith('tg_')) {
+        tgChatId = contactId.replace(/^tg_/, '');
+      } else if (contact.handle && contact.handle.startsWith('tg_')) {
+        tgChatId = contact.handle.replace(/^tg_/, '');
+      } else if (contact.handle && /^\d+$/.test(contact.handle.trim())) {
+        tgChatId = contact.handle.trim();
+      }
+
+      if (tgChatId) {
+        try {
+          const tgResult = await telegramService.sendMessage(tgChatId, text);
+          telegramDispatch.success = true;
+          telegramDispatch.result = tgResult;
+          console.log(`[API /chat/send] Telegram API message sent to chat ${tgChatId} (msg_id: ${tgResult?.messageId})`);
+        } catch (tgErr) {
+          console.error(`[API /chat/send] Telegram API Error for chat ${tgChatId}:`, tgErr.message);
+          telegramDispatch.error = tgErr.message;
+        }
+      } else {
+        telegramDispatch.error = 'Could not resolve numeric Telegram chatId from contact.';
+      }
+    }
+
+    // Check if this contact is a WhatsApp contact
+    const isWhatsApp = contactId.startsWith('wa_') || 
+                       contact.platform === 'whatsapp' || 
+                       (contact.handle && contact.handle.startsWith('wa_'));
+
+    if (isWhatsApp) {
+      whatsappDispatch.attempted = true;
+      let waNumber = null;
+      if (contactId.startsWith('wa_')) {
+        waNumber = contactId.replace(/^wa_/, '');
+      } else if (contact.handle && contact.handle.startsWith('wa_')) {
+        waNumber = contact.handle.replace(/^wa_/, '');
+      } else if (contact.handle && /^\+?\d+$/.test(contact.handle.replace(/[\s\-\(\)]/g, ''))) {
+        waNumber = contact.handle.replace(/[\s\-\(\)\+]/g, '');
+      }
+
+      if (waNumber) {
+        try {
+          if (whatsappService.activeSocket && whatsappService.status === 'connected') {
+            await whatsappService.activeSocket.sendMessage(`${waNumber}@s.whatsapp.net`, { text });
+            whatsappDispatch.success = true;
+            console.log(`[API /chat/send] WhatsApp message sent to ${waNumber}`);
+          } else {
+            whatsappDispatch.error = 'WhatsApp client is not currently connected.';
+          }
+        } catch (waErr) {
+          console.error(`[API /chat/send] WhatsApp Error for ${waNumber}:`, waErr.message);
+          whatsappDispatch.error = waErr.message;
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      message: payload,
+      telegramDispatch,
+      whatsappDispatch
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -530,45 +730,146 @@ router.post('/escalations/:id/resolve', async (req, res) => {
 
 // --- 9. WhatsApp & Telegram Integrations ---
 router.get('/integrations/whatsapp/status', (req, res) => {
-  res.json({ success: true, ...whatsappService.getStatus() });
+  const accountId = req.query.accountId || 'acc_wa_primary';
+  res.json({ success: true, ...whatsappService.getStatus(accountId) });
+});
+
+// WhatsApp 8-digit Pairing Code
+router.post('/integrations/whatsapp/pairing-code', async (req, res) => {
+  try {
+    const { phone, accountId } = req.body || {};
+    const result = await whatsappService.generatePairingCode(phone, accountId);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
 });
 
 router.post('/integrations/whatsapp/qr', async (req, res) => {
-  const qr = await whatsappService.generateMockQR();
-  res.json({ success: true, ...qr });
+  const accountId = req.body?.accountId || 'acc_wa_primary';
+  const qr = await whatsappService.generateRealQR(accountId);
+  res.json(qr);
 });
 
-router.post('/integrations/whatsapp/connect', (req, res) => {
-  const { phone } = req.body;
-  const result = whatsappService.connectSession(phone || '+1 555-0199');
+router.post('/integrations/whatsapp/connect', async (req, res) => {
+  const { phone, accountId, method } = req.body || {};
+  const result = await whatsappService.connectSession(phone || '+1 (555) 234-5678', accountId || 'acc_wa_primary', method || 'simulated');
   res.json(result);
 });
 
-router.post('/integrations/whatsapp/disconnect', (req, res) => {
-  const result = whatsappService.disconnect();
+router.post('/integrations/whatsapp/disconnect', async (req, res) => {
+  const { accountId } = req.body || {};
+  const result = await whatsappService.disconnect(accountId || 'acc_wa_primary');
   res.json(result);
 });
 
+// Telegram Token Verification
 router.post('/integrations/telegram/verify', async (req, res) => {
-  const { token } = req.body;
+  const { token } = req.body || {};
   const result = await telegramService.verifyBotToken(token);
   res.json(result);
+});
+
+// Telegram Status
+router.get('/integrations/telegram/status', (req, res) => {
+  const accountId = req.query.accountId || 'default';
+  const status = telegramService.getStatus(accountId);
+  res.json({ success: true, ...status });
+});
+
+// Telegram Start Polling (Persists token & launches sequential long-polling)
+router.post('/integrations/telegram/start', async (req, res) => {
+  try {
+    const { token, accountId = 'acc_tg_primary', accountName = 'Personal Telegram Bot', mode = 'personal', autoReply = true } = req.body || {};
+    if (!token) {
+      return res.status(400).json({ success: false, message: 'Bot token required' });
+    }
+
+    // Verify token first
+    const verifyResult = await telegramService.verifyBotToken(token);
+    if (!verifyResult.success) {
+      return res.status(400).json(verifyResult);
+    }
+
+    // Persist token in DB settings
+    await runAsync(`INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('telegram_bot_token', ?, CURRENT_TIMESTAMP)`, [token.trim()]);
+
+    // Upsert or update connected_accounts
+    const botUser = verifyResult.bot?.username ? `@${verifyResult.bot.username}` : (verifyResult.bot?.first_name || 'Bot');
+    const existingAcc = await getAsync(`SELECT id FROM connected_accounts WHERE id = ?`, [accountId]);
+    if (existingAcc) {
+      await runAsync(
+        `UPDATE connected_accounts SET identifier = ?, credentials = ?, status = 'connected', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        [botUser, JSON.stringify({ token: token.trim() }), accountId]
+      );
+    } else {
+      await runAsync(
+        `INSERT INTO connected_accounts (id, platform, account_name, identifier, credentials, mode, auto_reply, status, is_active)
+         VALUES (?, 'telegram', ?, ?, ?, ?, 1, 'connected', 1)`,
+        [accountId, accountName, botUser, JSON.stringify({ token: token.trim() }), mode]
+      );
+    }
+
+    // Wire up decisionEngine
+    telegramService.setDecisionEngine(decisionEngine);
+
+    // Start polling with message callback
+    const startResult = await telegramService.startBot({
+      accountId,
+      token,
+      accountName,
+      mode,
+      autoReply: autoReply !== false,
+      onMessageCallback: async (msg) => {
+        return await decisionEngine.processIncomingMessage({
+          contactId: msg.contactId,
+          text: msg.text,
+          platform: 'telegram',
+          senderName: msg.senderName,
+          initialMode: mode
+        });
+      }
+    });
+
+    res.json({
+      success: true,
+      message: `✓ Connected! Telegram bot @${verifyResult.bot.username} is now live and polling for messages.`,
+      bot: verifyResult.bot,
+      polling: true,
+      accountId
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/integrations/telegram/stop', (req, res) => {
+  const { accountId = 'acc_tg_primary' } = req.body || {};
+  telegramService.stopBot(accountId);
+  res.json({ success: true, message: 'Telegram polling stopped', polling: false, accountId });
 });
 
 // --- 10. Signal Messenger Integration ---
 router.get('/integrations/signal/status', async (req, res) => {
   try {
-    const status = await signalService.getStatus();
+    const accountId = req.query.accountId || 'acc_signal_primary';
+    const status = await signalService.getStatus(accountId);
     res.json({ success: true, ...status });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
+router.get('/integrations/signal/daemon-check', async (req, res) => {
+  const endpoint = req.query.endpoint || 'http://127.0.0.1:8080';
+  const result = await signalService.checkDaemon(endpoint);
+  res.json({ success: true, ...result });
+});
+
 router.post('/integrations/signal/link', async (req, res) => {
   try {
-    const { phone, endpoint } = req.body || {};
-    const qr = await signalService.generateLinkQR(endpoint, phone);
+    const { phone, endpoint, accountId } = req.body || {};
+    const qr = await signalService.generateLinkQR(endpoint, phone, accountId);
     res.json(qr);
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -576,14 +877,61 @@ router.post('/integrations/signal/link', async (req, res) => {
 });
 
 router.post('/integrations/signal/connect', async (req, res) => {
-  const { phone, endpoint } = req.body;
-  const result = await signalService.connectSession(phone, endpoint);
+  const { phone, endpoint, accountId } = req.body || {};
+  const result = await signalService.connectSession(phone, endpoint, accountId);
   res.json(result);
 });
 
 router.post('/integrations/signal/disconnect', async (req, res) => {
-  const result = await signalService.disconnect();
+  const { accountId } = req.body || {};
+  const result = await signalService.disconnect(accountId);
   res.json(result);
+});
+
+// --- 11. Multi-Account Management Endpoints ---
+router.get('/accounts', async (req, res) => {
+  try {
+    const accounts = await accountService.getAllAccounts();
+    res.json({ success: true, accounts });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.post('/accounts', async (req, res) => {
+  try {
+    const account = await accountService.addAccount(req.body);
+    res.json({ success: true, account });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+router.put('/accounts/:id', async (req, res) => {
+  try {
+    const updated = await accountService.updateAccount(req.params.id, req.body);
+    res.json({ success: true, account: updated });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+router.delete('/accounts/:id', async (req, res) => {
+  try {
+    const result = await accountService.deleteAccount(req.params.id);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.post('/accounts/:id/toggle-auto-reply', async (req, res) => {
+  try {
+    const result = await accountService.toggleAutoReply(req.params.id);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
 });
 
 router.post('/integrations/signal/receive', async (req, res) => {
@@ -636,6 +984,15 @@ router.post('/voice/config', async (req, res) => {
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
+});
+
+// Server graceful shutdown endpoint
+router.post('/server/stop', (req, res) => {
+  res.json({ success: true, message: 'GhostReply server shutdown initiated.' });
+  setTimeout(() => {
+    console.log('[Server] Shutdown requested via /api/server/stop.');
+    process.exit(0);
+  }, 500);
 });
 
 module.exports = router;

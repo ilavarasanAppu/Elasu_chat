@@ -35,7 +35,7 @@ class DecisionEngine {
   /**
    * Main Real-time Processing Pipeline
    */
-  async processIncomingMessage({ contactId, text, platform = 'simulator', senderName }) {
+  async processIncomingMessage({ contactId, text, platform = 'simulator', senderName, initialMode }) {
     const startTime = Date.now();
     const messageId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
@@ -43,13 +43,14 @@ class DecisionEngine {
     let contact = await getAsync(`SELECT * FROM contacts WHERE id = ?`, [contactId]);
     if (!contact) {
       // Auto-create contact if new
+      const effectiveMode = initialMode || 'personal';
       contact = {
         id: contactId,
         name: senderName || `User ${contactId.substring(0, 6)}`,
         handle: contactId,
         avatar: '👤',
         platform,
-        mode: 'personal',
+        mode: effectiveMode,
         auto_reply: 1,
         delay_mode: 'natural',
         delay_seconds: 2,
@@ -60,6 +61,30 @@ class DecisionEngine {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [contact.id, contact.name, contact.handle, contact.avatar, contact.platform, contact.mode, contact.auto_reply, contact.delay_mode, contact.delay_seconds, contact.relationship_type]
       );
+
+      // Create default personality profile record for foreign key integrity
+      const defProf = personalityService.getDefaultProfile();
+      await runAsync(
+        `INSERT OR IGNORE INTO personality_profiles 
+         (contact_id, formality_level, avg_message_length, primary_language, code_switching, typo_patterns, abbreviation_map, excitement_markers, favorite_emojis, emoji_frequency, humor_type, intimacy_level, inside_jokes, few_shot_examples)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          contact.id,
+          defProf.formality_level,
+          defProf.avg_message_length,
+          defProf.primary_language,
+          defProf.code_switching,
+          defProf.typo_patterns,
+          defProf.abbreviation_map,
+          defProf.excitement_markers,
+          defProf.favorite_emojis,
+          defProf.emoji_frequency,
+          defProf.humor_type,
+          defProf.intimacy_level,
+          defProf.inside_jokes,
+          defProf.few_shot_examples
+        ]
+      ).catch(() => {});
     }
 
     const mode = contact.mode || 'personal';
@@ -125,7 +150,13 @@ class DecisionEngine {
     let temperature = 0.7;
     let max_tokens = 250;
     let retrievedDocs = [];
-    let profile = null;
+
+    // Fetch profile first so recentHistory can clean replies properly
+    let profile = await getAsync(`SELECT * FROM personality_profiles WHERE contact_id = ?`, [contact.id]);
+    if (!profile) {
+      profile = personalityService.getDefaultProfile();
+    }
+
     const recentHistoryRaw = await allAsync(
       `SELECT id, direction, sender_name, text, timestamp FROM messages WHERE contact_id = ? AND id != ? ORDER BY timestamp DESC LIMIT 10`,
       [contact.id, messageId]
@@ -134,8 +165,8 @@ class DecisionEngine {
     const recentHistory = recentHistoryRaw.map(h => ({
       role: h.direction === 'incoming' ? 'user' : 'assistant',
       sender_name: h.sender_name,
-      text: personalityService.cleanHumanReply(h.text, profile || {}),
-      content: personalityService.cleanHumanReply(h.text, profile || {}),
+      text: personalityService.cleanHumanReply(h.text, profile),
+      content: personalityService.cleanHumanReply(h.text, profile),
       timestamp: h.timestamp
     }));
 
@@ -159,11 +190,6 @@ class DecisionEngine {
       });
     } else {
       // Personal Mode Persona Mirroring
-      profile = await getAsync(`SELECT * FROM personality_profiles WHERE contact_id = ?`, [contact.id]);
-      if (!profile) {
-        profile = personalityService.getDefaultProfile();
-      }
-
       const preferredLanguage = settings.preferred_language || 'tanglish';
       profile.preferred_language = preferredLanguage;
 
@@ -266,7 +292,8 @@ class DecisionEngine {
     );
 
     // Update contact last_active
-    await runAsync(`UPDATE contacts SET last_active = CURRENT_TIMESTAMP WHERE id = ?`, [contact.id]);
+    const nowIso = new Date().toISOString();
+    await runAsync(`UPDATE contacts SET last_active = ? WHERE id = ?`, [nowIso, contact.id]);
 
     const resultPayload = {
       messageId: replyMessageId,

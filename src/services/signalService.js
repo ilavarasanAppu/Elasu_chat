@@ -10,28 +10,47 @@ class SignalService {
     this.endpoint = 'http://127.0.0.1:8080';
     this.phoneNumber = '';
     this.decisionEngine = null;
+    this.daemonOnline = false;
   }
 
   setDecisionEngine(engine) {
     this.decisionEngine = engine;
   }
 
-  async getStatus() {
-    // Check if phone or status is saved in DB settings
-    const phoneRow = await getAsync(`SELECT value FROM settings WHERE key = 'signal_phone_number'`);
-    const epRow = await getAsync(`SELECT value FROM settings WHERE key = 'signal_endpoint'`);
-    const statusRow = await getAsync(`SELECT value FROM settings WHERE key = 'signal_status'`);
-
-    if (phoneRow?.value) this.phoneNumber = phoneRow.value;
-    if (epRow?.value) this.endpoint = epRow.value;
-    if (statusRow?.value && statusRow.value === 'connected') {
-      this.status = 'connected';
-      this.sessionInfo = {
-        phone: this.phoneNumber || '+91 98765 43210',
-        deviceName: 'GhostReply Signal Daemon',
-        connectedAt: new Date().toISOString()
+  /**
+   * Test if signal-cli-rest-api daemon is running and reachable
+   */
+  async checkDaemon(endpoint) {
+    const target = (endpoint || this.endpoint || 'http://127.0.0.1:8080').trim().replace(/\/$/, '');
+    try {
+      const res = await axios.get(`${target}/v1/about`, { timeout: 2500 });
+      this.daemonOnline = !!res.data;
+      return {
+        online: true,
+        endpoint: target,
+        version: res.data?.version || 'signal-cli-rest-api',
+        message: 'Signal daemon is online and responsive!'
       };
+    } catch (e) {
+      // Also try fallback endpoint
+      try {
+        await axios.get(`${target}/v1/qrcodelink?device_name=ping`, { timeout: 1500 });
+        this.daemonOnline = true;
+        return { online: true, endpoint: target, message: 'Signal daemon is online' };
+      } catch (e2) {
+        this.daemonOnline = false;
+        return {
+          online: false,
+          endpoint: target,
+          message: 'Signal daemon is not reachable at this endpoint.',
+          dockerCommand: 'docker run -d --name signal-cli -p 8080:8080 -v $HOME/.local/share/signal-cli:/home/.local/share/signal-cli bbernhard/signal-cli-rest-api'
+        };
+      }
     }
+  }
+
+  async getStatus(accountId = 'acc_signal_primary') {
+    const daemonStatus = await this.checkDaemon(this.endpoint);
 
     return {
       status: this.status,
@@ -39,36 +58,46 @@ class SignalService {
       endpoint: this.endpoint,
       sessionInfo: this.sessionInfo,
       hasQr: !!this.qrCodeData,
-      qrCodeData: this.qrCodeData
+      qrCodeData: this.qrCodeData,
+      daemonOnline: daemonStatus.online,
+      daemonMessage: daemonStatus.message,
+      dockerCommand: daemonStatus.dockerCommand,
+      accountId
     };
   }
 
-  async generateLinkQR(endpoint, phone) {
+  /**
+   * Generate Signal device linking QR
+   */
+  async generateLinkQR(endpoint, phone, accountId = 'acc_signal_primary') {
     this.status = 'linking';
-    if (endpoint) this.endpoint = endpoint;
-    if (phone) this.phoneNumber = phone;
+    if (endpoint) this.endpoint = endpoint.trim();
+    if (phone) this.phoneNumber = phone.trim();
 
+    const daemonCheck = await this.checkDaemon(this.endpoint);
     let uri = '';
+    let isLiveDaemon = false;
 
-    // Check if signal-cli REST daemon is running on this.endpoint and provides live link
-    if (this.endpoint) {
+    if (daemonCheck.online) {
       try {
-        const ep = this.endpoint.trim().replace(/\/$/, '');
-        const res = await axios.get(`${ep}/v1/qrcodelink?device_name=GhostReply`, { timeout: 2000 });
+        const ep = this.endpoint.replace(/\/$/, '');
+        const res = await axios.get(`${ep}/v1/qrcodelink?device_name=GhostReply`, { timeout: 3000 });
         if (typeof res.data === 'string' && res.data.startsWith('tsdevice:/')) {
           uri = res.data.trim();
+          isLiveDaemon = true;
         } else if (res.data?.uri) {
           uri = res.data.uri;
+          isLiveDaemon = true;
         }
       } catch (e) {
-        // Daemon not running or no direct endpoint, proceed with standard Signal device link generation
+        console.warn('[SignalService] Error fetching QR from daemon:', e.message);
       }
     }
 
     if (!uri) {
-      const uuid = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-      const pubKey = Buffer.from(`ghostreply_signal_pubkey_${Date.now()}_${(this.phoneNumber || 'device').replace(/[^0-9]/g, '')}`).toString('base64');
-      uri = `tsdevice:/?uuid=${uuid}&pub_key=${encodeURIComponent(pubKey)}`;
+      // Compatible format for simulator/preview
+      const { generateSignalDeviceLink } = require('./signalUtils');
+      uri = generateSignalDeviceLink(this.phoneNumber, 'GhostReply');
     }
 
     this.qrCodeData = uri;
@@ -76,18 +105,20 @@ class SignalService {
     let qrDataUrl = '';
     try {
       qrDataUrl = await QRCode.toDataURL(uri, {
-        errorCorrectionLevel: 'M',
+        errorCorrectionLevel: 'H',
         type: 'image/png',
-        width: 280,
+        width: 300,
         margin: 2,
-        color: {
-          dark: '#000000',
-          light: '#ffffff'
-        }
+        color: { dark: '#1e293b', light: '#ffffff' }
       });
     } catch (qrErr) {
       console.error('[SignalService] Error generating QR Data URL:', qrErr);
     }
+
+    await runAsync(
+      `UPDATE connected_accounts SET status = 'pairing', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [accountId]
+    ).catch(() => {});
 
     return {
       success: true,
@@ -95,25 +126,35 @@ class SignalService {
       qrCode: uri,
       linkingUri: uri,
       qrDataUrl,
-      message: 'Scan the QR code in Signal App: Settings -> Linked Devices -> Link New Device.'
+      daemonOnline: daemonCheck.online,
+      isLiveDaemon,
+      message: daemonCheck.online
+        ? '✓ Live Signal Daemon Connected! Scan the QR code in Signal: Settings -> Linked Devices -> Link New Device.'
+        : 'Signal daemon is not running locally. To link with real Signal, launch signal-cli daemon or use Quick Connect for testing.',
+      dockerCommand: daemonCheck.dockerCommand
     };
   }
 
-  async connectSession(phone = '+91 98765 43210', endpoint = 'http://127.0.0.1:8080') {
+  async connectSession(phone = '+91 98765 43210', endpoint = 'http://127.0.0.1:8080', accountId = 'acc_signal_primary') {
     this.status = 'connected';
     this.phoneNumber = phone;
     this.endpoint = endpoint || this.endpoint;
     this.qrCodeData = null;
     this.sessionInfo = {
+      accountId,
       phone: this.phoneNumber,
       deviceName: 'GhostReply Signal Linked Device (Active)',
       connectedAt: new Date().toISOString()
     };
 
-    // Save to settings
-    await runAsync(`UPDATE settings SET value = ? WHERE key = 'signal_phone_number'`, [this.phoneNumber]);
-    await runAsync(`UPDATE settings SET value = ? WHERE key = 'signal_endpoint'`, [this.endpoint]);
-    await runAsync(`UPDATE settings SET value = 'connected' WHERE key = 'signal_status'`);
+    await runAsync(
+      `UPDATE connected_accounts SET status = 'connected', identifier = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [this.phoneNumber, accountId]
+    ).catch(() => {});
+
+    await runAsync(`UPDATE settings SET value = ? WHERE key = 'signal_phone_number'`, [this.phoneNumber]).catch(() => {});
+    await runAsync(`UPDATE settings SET value = ? WHERE key = 'signal_endpoint'`, [this.endpoint]).catch(() => {});
+    await runAsync(`UPDATE settings SET value = 'connected' WHERE key = 'signal_status'`).catch(() => {});
 
     return {
       success: true,
@@ -122,18 +163,24 @@ class SignalService {
     };
   }
 
-  async disconnect() {
+  async disconnect(accountId = 'acc_signal_primary') {
     this.status = 'disconnected';
     this.qrCodeData = null;
     this.sessionInfo = null;
-    await runAsync(`UPDATE settings SET value = 'disconnected' WHERE key = 'signal_status'`);
-    return { success: true, status: 'disconnected' };
+
+    await runAsync(
+      `UPDATE connected_accounts SET status = 'disconnected', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [accountId]
+    ).catch(() => {});
+
+    await runAsync(`UPDATE settings SET value = 'disconnected' WHERE key = 'signal_status'`).catch(() => {});
+    return { success: true, status: 'disconnected', accountId };
   }
 
   /**
    * Handle incoming message from Signal webhook or signal-cli daemon
    */
-  async handleIncomingSignalMessage({ from, text, senderName }) {
+  async handleIncomingSignalMessage({ from, text, senderName, accountId = 'acc_signal_primary' }) {
     if (!from || !text) return { error: 'from and text are required' };
 
     const contactId = `signal_${from.replace(/[^a-zA-Z0-9]/g, '')}`;
@@ -147,27 +194,7 @@ class SignalService {
       });
     }
 
-    return { success: true, received: true };
-  }
-
-  /**
-   * Send outbound Signal message
-   */
-  async sendMessage(recipient, text) {
-    try {
-      // Try sending via local signal-cli REST API if daemon running
-      if (this.endpoint) {
-        await axios.post(`${this.endpoint}/v2/send`, {
-          message: text,
-          number: this.phoneNumber,
-          recipients: [recipient]
-        }, { timeout: 8000 });
-      }
-      return { success: true, sent: true };
-    } catch (e) {
-      // If daemon offline, return simulated delivery
-      return { success: true, simulated: true, note: 'Simulated Signal delivery' };
-    }
+    return null;
   }
 }
 

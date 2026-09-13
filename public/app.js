@@ -24,6 +24,14 @@ const elements = {
   headerProviderSelect: document.getElementById('headerProviderSelect'),
   headerModelSelect: document.getElementById('headerModelSelect'),
   headerReloadModelsBtn: document.getElementById('headerReloadModelsBtn'),
+  headerCustomModelBtn: document.getElementById('headerCustomModelBtn'),
+  headerTestAiBtn: document.getElementById('headerTestAiBtn'),
+  customModelModal: document.getElementById('customModelModal'),
+  btnCloseCustomModelModal: document.getElementById('btnCloseCustomModelModal'),
+  btnCancelCustomModelModal: document.getElementById('btnCancelCustomModelModal'),
+  btnApplyCustomModel: document.getElementById('btnApplyCustomModel'),
+  customModelInput: document.getElementById('customModelInput'),
+  modalActiveProviderName: document.getElementById('modalActiveProviderName'),
   headerStatusDot: document.getElementById('headerStatusDot'),
   globalAutoReplyToggle: document.getElementById('globalAutoReplyToggle'),
   escalationBadge: document.getElementById('escalationBadge'),
@@ -44,8 +52,33 @@ const elements = {
   typingText: document.getElementById('typingText'),
   simulatedInputText: document.getElementById('simulatedInputText'),
   btnSendSimulated: document.getElementById('btnSendSimulated'),
+  btnSendNormal: document.getElementById('btnSendNormal'),
   contactSearchInput: document.getElementById('contactSearchInput'),
   btnAddContactModal: document.getElementById('btnAddContactModal'),
+
+  // Chat Header Controls & Customization
+  btnToggleAutoReply: document.getElementById('btnToggleAutoReply'),
+  iconAutoReply: document.getElementById('iconAutoReply'),
+  autoReplyStatusLabel: document.getElementById('autoReplyStatusLabel'),
+  btnToggleMute: document.getElementById('btnToggleMute'),
+  iconMuteStatus: document.getElementById('iconMuteStatus'),
+  btnOpenChatSettings: document.getElementById('btnOpenChatSettings'),
+  modalChatSettings: document.getElementById('modalChatSettings'),
+  btnCloseChatSettingsModal: document.getElementById('btnCloseChatSettingsModal'),
+  btnCancelChatSettings: document.getElementById('btnCancelChatSettings'),
+  btnSaveChatSettings: document.getElementById('btnSaveChatSettings'),
+  modalSettingsContactLabel: document.getElementById('modalSettingsContactLabel'),
+  tabBtnAppearance: document.getElementById('tabBtnAppearance'),
+  tabBtnControls: document.getElementById('tabBtnControls'),
+  tabAppearance: document.getElementById('tab-appearance'),
+  tabControls: document.getElementById('tab-controls'),
+  selectChatFontSize: document.getElementById('selectChatFontSize'),
+  selectChatBubbleStyle: document.getElementById('selectChatBubbleStyle'),
+  previewChatContainer: document.getElementById('previewChatContainer'),
+  checkManualChatOnly: document.getElementById('checkManualChatOnly'),
+  checkChatNotifications: document.getElementById('checkChatNotifications'),
+  btnConfirmClearChat: document.getElementById('btnConfirmClearChat'),
+  btnConfirmDeleteContact: document.getElementById('btnConfirmDeleteContact'),
 
   // Brain Inspector
   brainModeBadge: document.getElementById('brainModeBadge'),
@@ -169,7 +202,43 @@ const elements = {
   signalEndpointInput: document.getElementById('signalEndpointInput'),
   btnGenerateSignalQR: document.getElementById('btnGenerateSignalQR'),
   btnConnectSignal: document.getElementById('btnConnectSignal'),
-  btnDisconnectSignal: document.getElementById('btnDisconnectSignal')
+  btnDisconnectSignal: document.getElementById('btnDisconnectSignal'),
+
+  // Multi-Account Facility
+  accountsListContainer: document.getElementById('accountsListContainer'),
+  btnOpenAddAccountModal: document.getElementById('btnOpenAddAccountModal'),
+  addAccountModal: document.getElementById('addAccountModal'),
+  btnCloseAddAccountModal: document.getElementById('btnCloseAddAccountModal'),
+  btnCancelAddAccountModal: document.getElementById('btnCancelAddAccountModal'),
+  btnSaveNewAccount: document.getElementById('btnSaveNewAccount'),
+  modalAccountPlatform: document.getElementById('modalAccountPlatform'),
+  modalAccountName: document.getElementById('modalAccountName'),
+  modalAccountIdentifier: document.getElementById('modalAccountIdentifier'),
+  modalAccountIdentifierLabel: document.getElementById('modalAccountIdentifierLabel'),
+  modalAccountCred: document.getElementById('modalAccountCred'),
+  modalAccountCredLabel: document.getElementById('modalAccountCredLabel'),
+  modalAccountMode: document.getElementById('modalAccountMode'),
+  modalAccountAutoReply: document.getElementById('modalAccountAutoReply'),
+
+  // WhatsApp Enhanced
+  tabWaPairingBtn: document.getElementById('tabWaPairingBtn'),
+  tabWaQrBtn: document.getElementById('tabWaQrBtn'),
+  waPairingView: document.getElementById('waPairingView'),
+  waQrView: document.getElementById('waQrView'),
+  waPhoneInput: document.getElementById('waPhoneInput'),
+  btnGetWaPairingCode: document.getElementById('btnGetWaPairingCode'),
+  waPairingCodeBox: document.getElementById('waPairingCodeBox'),
+  waPairingCodeDisplay: document.getElementById('waPairingCodeDisplay'),
+
+  // Telegram Enhanced
+  tgBotModeSelect: document.getElementById('tgBotModeSelect'),
+  btnStopTgBot: document.getElementById('btnStopTgBot'),
+
+  // Signal Enhanced
+  signalDaemonBanner: document.getElementById('signalDaemonBanner'),
+  btnCheckSignalDaemon: document.getElementById('btnCheckSignalDaemon'),
+  btnCopySignalCmd: document.getElementById('btnCopySignalCmd'),
+  signalDockerCmdText: document.getElementById('signalDockerCmdText')
 };
 
 // ==========================================================================
@@ -182,11 +251,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadContacts();
   await loadKnowledgeDocs();
   await loadEscalations();
+  await loadAccounts();
+  await loadIntegrationsStatus();
   setupChatHandlers();
+  setupChatSettingsHandlers();
   setupProviderHandlers();
   setupPersonaHandlers();
   setupKnowledgeHandlers();
   setupIntegrationHandlers();
+  setupMultiAccountHandlers();
   setupLanguageAndSpeedControls();
   setupVoiceStudioAndSpeech();
   setupSignalIntegration();
@@ -250,8 +323,21 @@ function handleWebSocketEvent(payload) {
 
   switch (event) {
     case 'message_received':
+      // Always refresh sidebar contacts so new Telegram/WhatsApp contacts appear immediately!
+      loadContacts();
+
       if (data.contactId === state.activeContactId) {
         appendMessageBubble(data);
+      } else {
+        const contact = state.contacts.find(c => c.id === data.contactId);
+        const isMuted = contact && contact.notifications_enabled === 0;
+        if (!isMuted) {
+          const preview = (data.text || '').length > 35 ? data.text.substring(0, 35) + '...' : data.text;
+          showHeaderToast(`📩 New message from ${data.contactName || 'Contact'}: "${preview}" (Click to view)`, false, () => {
+            selectContact(data.contactId);
+            switchView('view-chat');
+          });
+        }
       }
       break;
 
@@ -273,6 +359,8 @@ function handleWebSocketEvent(payload) {
         appendMessageBubble(data);
         updateBrainStats(data);
       }
+      // Refresh contacts to update message snippet and time
+      loadContacts();
       break;
 
     case 'provider_fallback_warning':
@@ -283,6 +371,30 @@ function handleWebSocketEvent(payload) {
       showTypingIndicator(false);
       showEscalationAlert(data);
       loadEscalations();
+      break;
+
+    case 'whatsapp_status_changed':
+      loadIntegrationsStatus();
+      loadAccounts();
+      if (data.status === 'connected') {
+        showHeaderToast('✓ WhatsApp Connected Successfully!', false);
+      }
+      break;
+
+    case 'whatsapp_qr_ready':
+      if (elements.waQrBox && data.qrDataUrl) {
+        if (elements.waStatusBadge) elements.waStatusBadge.textContent = 'Pairing (Scan QR)';
+        elements.waQrBox.innerHTML = `
+          <div style="display:flex;flex-direction:column;align-items:center;gap:12px;width:100%;">
+            <div style="background:#ffffff;padding:14px;border-radius:12px;display:inline-block;box-shadow:0 8px 24px rgba(0,0,0,0.35);">
+              <img src="${data.qrDataUrl}" alt="WhatsApp Web QR Code" width="220" height="220" style="display:block;border-radius:8px;" />
+            </div>
+            <div style="color:var(--accent-green);font-size:12px;text-align:center;font-weight:500;">
+              Open <strong>WhatsApp → Settings → Linked Devices → Link a Device</strong> and scan this QR code
+            </div>
+          </div>
+        `;
+      }
       break;
   }
 }
@@ -319,9 +431,104 @@ async function loadSettings() {
 
       // Populate Voice & Audio Rhythm Studio
       populateVoiceStudioSettings(data.settings);
+
+      // Populate Integrations Form fields (Telegram token, WhatsApp phone, etc.)
+      populateIntegrationsForms(data.settings);
     }
   } catch (err) {
     console.error('Failed to load settings', err);
+  }
+}
+
+function populateIntegrationsForms(settings) {
+  if (elements.tgBotToken && settings.telegram_bot_token) {
+    elements.tgBotToken.value = settings.telegram_bot_token;
+  }
+  if (elements.waPhoneInput && settings.whatsapp_phone_number) {
+    elements.waPhoneInput.value = settings.whatsapp_phone_number;
+  }
+}
+
+async function loadIntegrationsStatus() {
+  // 1. Telegram Live Status
+  try {
+    const tgRes = await fetch('/api/integrations/telegram/status');
+    const tgData = await tgRes.json();
+    if (tgData.connected && tgData.bot) {
+      if (elements.tgStatusBadge) {
+        elements.tgStatusBadge.textContent = 'Connected (Live)';
+        elements.tgStatusBadge.className = 'status-badge connected';
+      }
+      if (elements.tgStatusBox) {
+        elements.tgStatusBox.innerHTML = `
+          <div style="color:var(--accent-emerald);">
+            <strong>✓ Bot Live: @${escapeHTML(tgData.bot.username || 'Bot')}</strong>
+            <p class="text-xs text-muted" style="margin-top:4px;">ID: ${tgData.bot.id} • Real-time sequential long polling active. Ready for chats.</p>
+          </div>
+        `;
+      }
+      if (elements.btnStopTgBot) elements.btnStopTgBot.classList.remove('hidden');
+    } else {
+      if (elements.tgStatusBadge) {
+        elements.tgStatusBadge.textContent = 'Disconnected';
+        elements.tgStatusBadge.className = 'status-badge';
+      }
+      if (elements.btnStopTgBot) elements.btnStopTgBot.classList.add('hidden');
+    }
+  } catch (e) {
+    console.warn('[Integrations] Telegram status error:', e.message);
+  }
+
+  // 2. WhatsApp Live Status
+  try {
+    const waRes = await fetch('/api/integrations/whatsapp/status');
+    const waData = await waRes.json();
+    if (waData.status === 'connected') {
+      if (elements.waStatusBadge) {
+        elements.waStatusBadge.textContent = 'Connected (Active)';
+        elements.waStatusBadge.className = 'status-badge connected';
+      }
+      if (elements.btnDisconnectWA) elements.btnDisconnectWA.classList.remove('hidden');
+      if (elements.waQrBox) {
+        const phone = waData.sessionInfo?.phone ? `+${waData.sessionInfo.phone}` : 'Linked Device';
+        elements.waQrBox.innerHTML = `
+          <div style="color:var(--accent-emerald);text-align:center;padding:16px;">
+            <strong>✓ WhatsApp Multi-Device Active (${escapeHTML(phone)})</strong>
+            <p class="text-xs text-muted" style="margin-top:4px;">Connected & listening for chats.</p>
+          </div>
+        `;
+      }
+      if (elements.waPairingCodeBox) elements.waPairingCodeBox.style.display = 'none';
+    } else if (waData.status === 'pairing') {
+      if (elements.waStatusBadge) {
+        elements.waStatusBadge.textContent = waData.pairingCode ? 'Pairing Code Active' : 'Pairing (Scan QR)';
+        elements.waStatusBadge.className = 'status-badge pending';
+      }
+      if (waData.pairingCode && elements.waPairingCodeBox && elements.waPairingCodeDisplay) {
+        elements.waPairingCodeBox.style.display = 'block';
+        elements.waPairingCodeDisplay.textContent = waData.pairingCode;
+      }
+      if (waData.qrDataUrl && elements.waQrBox) {
+        elements.waQrBox.innerHTML = `
+          <div style="display:flex;flex-direction:column;align-items:center;gap:12px;width:100%;">
+            <div style="background:#ffffff;padding:14px;border-radius:12px;display:inline-block;box-shadow:0 8px 24px rgba(0,0,0,0.35);">
+              <img src="${waData.qrDataUrl}" alt="WhatsApp Web QR Code" width="220" height="220" style="display:block;border-radius:8px;" />
+            </div>
+            <div style="color:var(--accent-green);font-size:12px;text-align:center;font-weight:500;">
+              Open <strong>WhatsApp → Settings → Linked Devices → Link a Device</strong> and scan this QR code
+            </div>
+          </div>
+        `;
+      }
+    } else {
+      if (elements.waStatusBadge) {
+        elements.waStatusBadge.textContent = 'Disconnected';
+        elements.waStatusBadge.className = 'status-badge';
+      }
+      if (elements.btnDisconnectWA) elements.btnDisconnectWA.classList.add('hidden');
+    }
+  } catch (e) {
+    console.warn('[Integrations] WhatsApp status error:', e.message);
   }
 }
 
@@ -403,7 +610,7 @@ function getEffectiveModelValue(provider) {
 }
 
 // Floating Toast for Header AI Provider & Model updates
-function showHeaderToast(message, isWarning = false) {
+function showHeaderToast(message, isWarning = false, onClickHandler = null) {
   let toast = document.getElementById('headerAiToast');
   if (!toast) {
     toast = document.createElement('div');
@@ -413,10 +620,20 @@ function showHeaderToast(message, isWarning = false) {
   }
   toast.textContent = message;
   toast.className = `header-ai-toast ${isWarning ? 'warning' : ''} show`;
+  if (onClickHandler) {
+    toast.style.cursor = 'pointer';
+    toast.onclick = () => {
+      onClickHandler();
+      toast.classList.remove('show');
+    };
+  } else {
+    toast.style.cursor = 'default';
+    toast.onclick = null;
+  }
   clearTimeout(toast._timeout);
   toast._timeout = setTimeout(() => {
     toast.classList.remove('show');
-  }, 3200);
+  }, 4000);
 }
 
 /**
@@ -426,6 +643,16 @@ async function updateHeaderModelsDropdown(providerKey, forceSelectModel = null) 
   if (!elements.headerModelSelect) return;
 
   const currentModel = forceSelectModel || state.settings[`${providerKey}_model`] || '';
+
+  // Check if provider card dropdown already has options (e.g. from Load Models or preloads)
+  const cardSelect = document.getElementById(`cfg_${providerKey}_model`);
+
+  // Build config from current form values to ensure API key is supplied even if not yet saved in DB
+  const config = {};
+  const endpointEl = document.getElementById(`cfg_${providerKey}_endpoint`);
+  const apiKeyEl = document.getElementById(`cfg_${providerKey}_api_key`);
+  if (endpointEl && endpointEl.value) config[`${providerKey}_endpoint`] = endpointEl.value.trim();
+  if (apiKeyEl && apiKeyEl.value) config[`${providerKey}_api_key`] = apiKeyEl.value.trim();
 
   // Set loading state
   elements.headerModelSelect.innerHTML = '<option value="">Loading models...</option>';
@@ -438,7 +665,7 @@ async function updateHeaderModelsDropdown(providerKey, forceSelectModel = null) 
     const res = await fetch('/api/provider/models', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider: providerKey })
+      body: JSON.stringify({ provider: providerKey, config })
     });
     const data = await res.json();
 
@@ -455,35 +682,53 @@ async function updateHeaderModelsDropdown(providerKey, forceSelectModel = null) 
       });
 
       // Also sync with the provider settings card dropdown if on screen
-      const cardSelect = document.getElementById(`cfg_${providerKey}_model`);
       if (cardSelect) {
         cardSelect.innerHTML = elements.headerModelSelect.innerHTML;
       }
+    } else if (cardSelect && cardSelect.options.length > 1) {
+      // Use existing card select options as fallback
+      elements.headerModelSelect.innerHTML = cardSelect.innerHTML;
+    }
 
-      // Check if current active model exists in options
+    // Always add "+ Define Custom / Latest Model..." option
+    const customOpt = document.createElement('option');
+    customOpt.value = '__CUSTOM__';
+    customOpt.textContent = '➕ Define Custom / Latest Model...';
+    elements.headerModelSelect.appendChild(customOpt);
+
+    // Determine selection:
+    if (currentModel && currentModel !== '__CUSTOM__') {
       const exists = Array.from(elements.headerModelSelect.options).some(o => o.value === currentModel);
-      if (exists) {
-        elements.headerModelSelect.value = currentModel;
-        if (cardSelect) cardSelect.value = currentModel;
-      } else {
-        // Automatically select first available model and persist it
-        const first = elements.headerModelSelect.options[0].value;
+      if (!exists) {
+        // Prepend custom active model
+        const opt = document.createElement('option');
+        opt.value = currentModel;
+        opt.textContent = `${currentModel} (Active)`;
+        elements.headerModelSelect.insertBefore(opt, elements.headerModelSelect.firstChild);
+        if (cardSelect) {
+          const cardOpt = opt.cloneNode(true);
+          cardSelect.insertBefore(cardOpt, cardSelect.firstChild);
+        }
+      }
+      elements.headerModelSelect.value = currentModel;
+      if (cardSelect) cardSelect.value = currentModel;
+    } else if (elements.headerModelSelect.options.length > 1) {
+      // Pick first real model
+      const first = elements.headerModelSelect.options[0].value;
+      if (first !== '__CUSTOM__') {
         elements.headerModelSelect.value = first;
         state.settings[`${providerKey}_model`] = first;
         if (cardSelect) cardSelect.value = first;
         await saveSettings({ [`${providerKey}_model`]: first });
       }
-    } else {
-      // Fallback placeholder option
-      const opt = document.createElement('option');
-      opt.value = currentModel || 'default';
-      opt.textContent = currentModel || 'Default Model';
-      elements.headerModelSelect.appendChild(opt);
-      elements.headerModelSelect.value = opt.value;
     }
   } catch (err) {
     console.warn('[Header] Error fetching models for', providerKey, err);
-    elements.headerModelSelect.innerHTML = `<option value="${currentModel || 'default'}">${currentModel || 'Default Model'}</option>`;
+    elements.headerModelSelect.innerHTML = `
+      <option value="${currentModel || 'default'}">${currentModel || 'Default Model'}</option>
+      <option value="__CUSTOM__">➕ Define Custom / Latest Model...</option>
+    `;
+    elements.headerModelSelect.value = currentModel || 'default';
   } finally {
     elements.headerModelSelect.disabled = false;
     if (elements.headerReloadModelsBtn) {
@@ -497,6 +742,32 @@ async function updateHeaderModelsDropdown(providerKey, forceSelectModel = null) 
 }
 
 function setupProviderHandlers() {
+  // Helper to open Custom Model Modal
+  function openCustomModelModal() {
+    if (!elements.customModelModal) return;
+    const names = {
+      gemini: 'Google Gemini',
+      openai: 'OpenAI Compatible',
+      ollama: 'Ollama (Local)',
+      lmstudio: 'LM Studio (Local)',
+      openrouter: 'OpenRouter',
+      nvidia: 'NVIDIA NIM API',
+      mock: 'Smart Fallback Engine'
+    };
+    if (elements.modalActiveProviderName) {
+      elements.modalActiveProviderName.textContent = names[state.activeProvider] || state.activeProvider.toUpperCase();
+    }
+    if (elements.customModelInput) {
+      elements.customModelInput.value = state.settings[`${state.activeProvider}_model`] || '';
+      elements.customModelModal.classList.remove('hidden');
+      setTimeout(() => elements.customModelInput.focus(), 50);
+    }
+  }
+
+  function closeCustomModelModal() {
+    if (elements.customModelModal) elements.customModelModal.classList.add('hidden');
+  }
+
   // Header Provider Select Dropdown
   if (elements.headerProviderSelect) {
     elements.headerProviderSelect.addEventListener('change', async (e) => {
@@ -515,6 +786,14 @@ function setupProviderHandlers() {
     elements.headerModelSelect.addEventListener('change', async (e) => {
       const selectedModel = e.target.value;
       if (!selectedModel) return;
+
+      if (selectedModel === '__CUSTOM__') {
+        // Revert select display to current active model while opening modal
+        elements.headerModelSelect.value = state.settings[`${state.activeProvider}_model`] || '';
+        openCustomModelModal();
+        return;
+      }
+
       const modelKey = `${state.activeProvider}_model`;
       state.settings[modelKey] = selectedModel;
 
@@ -539,29 +818,179 @@ function setupProviderHandlers() {
     });
   }
 
-  // Test Ping buttons
+  // Header Quick Define Custom Model Button
+  if (elements.headerCustomModelBtn) {
+    elements.headerCustomModelBtn.addEventListener('click', openCustomModelModal);
+  }
+
+  // Header Quick Live Test Button
+  if (elements.headerTestAiBtn) {
+    elements.headerTestAiBtn.addEventListener('click', async () => {
+      elements.headerTestAiBtn.classList.add('testing');
+      showHeaderToast(`Testing live reply from ${state.activeProvider.toUpperCase()}...`);
+
+      try {
+        const apiKeyEl = document.getElementById(`cfg_${state.activeProvider}_api_key`);
+        const epEl = document.getElementById(`cfg_${state.activeProvider}_endpoint`);
+        const config = {
+          [`${state.activeProvider}_model`]: state.settings[`${state.activeProvider}_model`]
+        };
+        if (apiKeyEl && apiKeyEl.value) config[`${state.activeProvider}_api_key`] = apiKeyEl.value.trim();
+        if (epEl && epEl.value) config[`${state.activeProvider}_endpoint`] = epEl.value.trim();
+
+        const res = await fetch('/api/provider/test-live', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider: state.activeProvider, config })
+        });
+        const data = await res.json();
+
+        if (data.success && !data.isFallback) {
+          showHeaderToast(`✓ ${data.provider} (${data.model}) LIVE: "${data.reply}" (${data.latency}ms)`);
+          if (elements.inspectorLatency) elements.inspectorLatency.textContent = `${data.latency}ms`;
+        } else {
+          showHeaderToast(`✗ AI Test Failed: ${data.message || data.error}`, true);
+        }
+      } catch (err) {
+        showHeaderToast(`✗ Live test error: ${err.message}`, true);
+      } finally {
+        elements.headerTestAiBtn.classList.remove('testing');
+      }
+    });
+  }
+
+  // Custom Model Modal Controls
+  if (elements.btnCloseCustomModelModal) {
+    elements.btnCloseCustomModelModal.addEventListener('click', closeCustomModelModal);
+  }
+  if (elements.btnCancelCustomModelModal) {
+    elements.btnCancelCustomModelModal.addEventListener('click', closeCustomModelModal);
+  }
+  if (elements.btnApplyCustomModel) {
+    elements.btnApplyCustomModel.addEventListener('click', applyCustomModelInput);
+  }
+  if (elements.customModelInput) {
+    elements.customModelInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        applyCustomModelInput();
+      } else if (e.key === 'Escape') {
+        closeCustomModelModal();
+      }
+    });
+  }
+
+  async function applyCustomModelInput() {
+    const customVal = (elements.customModelInput?.value || '').trim();
+    if (!customVal) {
+      alert('Please enter a valid model identifier (e.g. gemini-2.5-flash).');
+      return;
+    }
+    closeCustomModelModal();
+
+    const modelKey = `${state.activeProvider}_model`;
+    state.settings[modelKey] = customVal;
+    await saveSettings({ [modelKey]: customVal });
+
+    // Update header dropdown
+    if (elements.headerModelSelect) {
+      setModelDropdownValue('headerModelSelect', customVal);
+    }
+    // Update card dropdown and custom input
+    const cardSelect = document.getElementById(`cfg_${state.activeProvider}_model`);
+    if (cardSelect) setModelDropdownValue(`cfg_${state.activeProvider}_model`, customVal);
+    const customInput = document.getElementById(`cfg_${state.activeProvider}_model_custom`);
+    if (customInput) customInput.value = customVal;
+
+    if (elements.inspectorModel) elements.inspectorModel.textContent = customVal;
+    showHeaderToast(`Activated Model: ${customVal}`);
+  }
+
+  // Auto-sync when user changes any card model dropdown
+  document.querySelectorAll('.model-dropdown').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      const provider = sel.id.replace('cfg_', '').replace('_model', '');
+      const val = sel.value;
+      if (!val) return;
+      state.settings[`${provider}_model`] = val;
+      const customInput = document.getElementById(`cfg_${provider}_model_custom`);
+      if (customInput) customInput.value = '';
+
+      await saveSettings({ [`${provider}_model`]: val });
+      if (provider === state.activeProvider) {
+        if (elements.headerModelSelect) setModelDropdownValue('headerModelSelect', val);
+        if (elements.inspectorModel) elements.inspectorModel.textContent = val;
+        showHeaderToast(`Model: ${val}`);
+      }
+    });
+  });
+
+  // Auto-save when user finishes typing a custom model in the card
+  document.querySelectorAll('.model-custom-input').forEach(input => {
+    input.addEventListener('change', async () => {
+      const val = input.value.trim();
+      if (!val) return;
+      const provider = input.id.replace('cfg_', '').replace('_model_custom', '');
+      state.settings[`${provider}_model`] = val;
+      const select = document.getElementById(`cfg_${provider}_model`);
+      if (select) setModelDropdownValue(`cfg_${provider}_model`, val);
+
+      await saveSettings({ [`${provider}_model`]: val });
+      if (provider === state.activeProvider) {
+        if (elements.headerModelSelect) setModelDropdownValue('headerModelSelect', val);
+        if (elements.inspectorModel) elements.inspectorModel.textContent = val;
+        showHeaderToast(`Model: ${val}`);
+      }
+    });
+  });
+
+  // Auto-persist API keys and Endpoints on blur
+  ['gemini', 'openai', 'ollama', 'lmstudio', 'openrouter', 'nvidia'].forEach(p => {
+    const keyEl = document.getElementById(`cfg_${p}_api_key`);
+    const epEl = document.getElementById(`cfg_${p}_endpoint`);
+    if (keyEl) {
+      keyEl.addEventListener('blur', async () => {
+        const val = keyEl.value.trim();
+        if (val && val !== state.settings[`${p}_api_key`]) {
+          state.settings[`${p}_api_key`] = val;
+          await saveSettings({ [`${p}_api_key`]: val });
+          showHeaderToast(`${p.toUpperCase()} API Key Saved`);
+        }
+      });
+    }
+    if (epEl) {
+      epEl.addEventListener('blur', async () => {
+        const val = epEl.value.trim();
+        if (val && val !== state.settings[`${p}_endpoint`]) {
+          state.settings[`${p}_endpoint`] = val;
+          await saveSettings({ [`${p}_endpoint`]: val });
+        }
+      });
+    }
+  });
+
+  // Test Ping buttons on provider cards
   document.querySelectorAll('.btn-test-provider').forEach(btn => {
     btn.addEventListener('click', async () => {
       const target = btn.getAttribute('data-target');
       const statusBox = document.getElementById(`status_${target}`);
-      if (statusBox) statusBox.textContent = 'Testing connection...';
+      if (statusBox) statusBox.textContent = 'Testing connection & live reply...';
 
       // Gather current input config
       const config = {};
-      if (target === 'ollama') {
-        config.ollama_endpoint = document.getElementById('cfg_ollama_endpoint').value;
-      } else if (target === 'lmstudio') {
-        config.lmstudio_endpoint = document.getElementById('cfg_lmstudio_endpoint').value;
-      } else if (target === 'openai') {
-        config.openai_endpoint = document.getElementById('cfg_openai_endpoint').value;
-        config.openai_api_key = document.getElementById('cfg_openai_api_key').value;
-      } else if (target === 'gemini') {
-        config.gemini_api_key = document.getElementById('cfg_gemini_api_key').value;
-      } else if (target === 'openrouter') {
-        config.openrouter_api_key = document.getElementById('cfg_openrouter_api_key').value;
-      } else if (target === 'nvidia') {
-        config.nvidia_api_key = document.getElementById('cfg_nvidia_api_key').value;
-        config.nvidia_endpoint = document.getElementById('cfg_nvidia_endpoint').value;
+      const endpointEl = document.getElementById(`cfg_${target}_endpoint`);
+      const apiKeyEl = document.getElementById(`cfg_${target}_api_key`);
+      if (endpointEl) config[`${target}_endpoint`] = endpointEl.value.trim();
+      if (apiKeyEl) config[`${target}_api_key`] = apiKeyEl.value.trim();
+      config[`${target}_model`] = getEffectiveModelValue(target);
+
+      // Auto-persist key and endpoint if entered
+      const toSave = {};
+      if (apiKeyEl && apiKeyEl.value.trim()) toSave[`${target}_api_key`] = apiKeyEl.value.trim();
+      if (endpointEl && endpointEl.value.trim()) toSave[`${target}_endpoint`] = endpointEl.value.trim();
+      if (config[`${target}_model`]) toSave[`${target}_model`] = config[`${target}_model`];
+      if (Object.keys(toSave).length > 0) {
+        await saveSettings(toSave);
       }
 
       try {
@@ -575,6 +1004,9 @@ function setupProviderHandlers() {
           statusBox.textContent = data.message;
           statusBox.className = `provider-status-msg ${data.success ? 'success' : 'error'}`;
         }
+        if (data.success) {
+          showHeaderToast(data.message);
+        }
       } catch (err) {
         if (statusBox) {
           statusBox.textContent = `Test Error: ${err.message}`;
@@ -584,16 +1016,29 @@ function setupProviderHandlers() {
     });
   });
 
-  // Select as Active Provider
+  // Select as Active Provider ("Set as Active Provider" button)
   document.querySelectorAll('.btn-select-provider').forEach(btn => {
     btn.addEventListener('click', async () => {
       const selected = btn.getAttribute('data-select');
-      await saveSettings({ active_provider: selected });
+
+      // Build full updates for this provider to persist credentials together
+      const updates = { active_provider: selected };
+      const epEl = document.getElementById(`cfg_${selected}_endpoint`);
+      const keyEl = document.getElementById(`cfg_${selected}_api_key`);
+      const effectiveModel = getEffectiveModelValue(selected);
+      if (epEl && epEl.value.trim()) updates[`${selected}_endpoint`] = epEl.value.trim();
+      if (keyEl && keyEl.value.trim()) updates[`${selected}_api_key`] = keyEl.value.trim();
+      if (effectiveModel) updates[`${selected}_model`] = effectiveModel;
+
+      await saveSettings(updates);
       state.activeProvider = selected;
       state.settings.active_provider = selected;
+      if (effectiveModel) state.settings[`${selected}_model`] = effectiveModel;
+      if (keyEl && keyEl.value.trim()) state.settings[`${selected}_api_key`] = keyEl.value.trim();
+
       updateActiveProviderUI(selected);
-      await updateHeaderModelsDropdown(selected);
-      showHeaderToast(`Active Provider: ${selected.toUpperCase()}`);
+      await updateHeaderModelsDropdown(selected, effectiveModel);
+      showHeaderToast(`Active Provider: ${selected.toUpperCase()} (${effectiveModel || 'Default'})`);
     });
   });
 
@@ -616,6 +1061,13 @@ function setupProviderHandlers() {
       nvidia_endpoint: document.getElementById('cfg_nvidia_endpoint').value,
       nvidia_model: getEffectiveModelValue('nvidia')
     };
+
+    if (elements.tgBotToken && elements.tgBotToken.value.trim()) {
+      updates.telegram_bot_token = elements.tgBotToken.value.trim();
+    }
+    if (elements.waPhoneInput && elements.waPhoneInput.value.trim()) {
+      updates.whatsapp_phone_number = elements.waPhoneInput.value.trim();
+    }
 
     await saveSettings(updates);
     await updateHeaderModelsDropdown(state.activeProvider);
@@ -661,8 +1113,22 @@ async function loadModelsForProvider(providerKey, btn) {
   const config = {};
   const endpointEl = document.getElementById(`cfg_${providerKey}_endpoint`);
   const apiKeyEl = document.getElementById(`cfg_${providerKey}_api_key`);
-  if (endpointEl) config[`${providerKey}_endpoint`] = endpointEl.value;
-  if (apiKeyEl) config[`${providerKey}_api_key`] = apiKeyEl.value;
+  if (endpointEl && endpointEl.value.trim()) config[`${providerKey}_endpoint`] = endpointEl.value.trim();
+  if (apiKeyEl && apiKeyEl.value.trim()) config[`${providerKey}_api_key`] = apiKeyEl.value.trim();
+
+  // Automatically persist credentials to database so subsequent calls (like header update) have them
+  const toPersist = {};
+  if (config[`${providerKey}_api_key`]) {
+    toPersist[`${providerKey}_api_key`] = config[`${providerKey}_api_key`];
+    state.settings[`${providerKey}_api_key`] = config[`${providerKey}_api_key`];
+  }
+  if (config[`${providerKey}_endpoint`]) {
+    toPersist[`${providerKey}_endpoint`] = config[`${providerKey}_endpoint`];
+    state.settings[`${providerKey}_endpoint`] = config[`${providerKey}_endpoint`];
+  }
+  if (Object.keys(toPersist).length > 0) {
+    await saveSettings(toPersist);
+  }
 
   // Save current selection
   const previousValue = select.value;
@@ -670,7 +1136,6 @@ async function loadModelsForProvider(providerKey, btn) {
   // UI: Set loading state
   btn.classList.add('loading');
   btn.classList.remove('success', 'error');
-  const originalHTML = btn.innerHTML;
   btn.innerHTML = '<i data-lucide="loader-2"></i> Loading...';
   if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [btn] });
   select.disabled = true;
@@ -702,7 +1167,7 @@ async function loadModelsForProvider(providerKey, btn) {
         select.appendChild(opt);
       });
 
-      // Try to restore previous selection
+      // Try to restore previous selection or pick the top model
       const restorable = Array.from(select.options).some(o => o.value === previousValue);
       if (restorable) {
         select.value = previousValue;
@@ -711,10 +1176,14 @@ async function loadModelsForProvider(providerKey, btn) {
       // Clear custom input since we now have real models
       if (customInput) customInput.value = '';
 
+      // Save the selected model
+      const chosenModel = select.value;
+      state.settings[`${providerKey}_model`] = chosenModel;
+      await saveSettings({ [`${providerKey}_model`]: chosenModel });
+
       // Sync with header model dropdown if this provider is currently active
       if (providerKey === state.activeProvider && elements.headerModelSelect) {
-        elements.headerModelSelect.innerHTML = select.innerHTML;
-        elements.headerModelSelect.value = select.value;
+        await updateHeaderModelsDropdown(providerKey, chosenModel);
       }
 
       // UI: Success state
@@ -799,9 +1268,17 @@ async function loadContacts() {
       renderContactsTable();
       populatePersonaContactSelect();
 
-      // Select first contact by default
-      if (state.contacts.length > 0 && !state.activeContactId) {
-        selectContact(state.contacts[0].id);
+      // Select first contact by default if current selection is invalid or missing
+      if (state.contacts.length > 0) {
+        const stillExists = state.contacts.some(c => c.id === state.activeContactId);
+        if (!state.activeContactId || !stillExists) {
+          selectContact(state.contacts[0].id);
+        }
+      } else {
+        state.activeContactId = null;
+        if (elements.chatMessagesContainer) {
+          elements.chatMessagesContainer.innerHTML = '<div class="empty-state"><p>No contacts available. Add a contact to start testing.</p></div>';
+        }
       }
     }
   } catch (err) {
@@ -846,6 +1323,12 @@ async function selectContact(contactId) {
 
   // Update Mode Switcher Buttons
   updateModeButtonsUI(state.activeMode);
+
+  // Update Contact Header Actions (Auto-reply & Mute)
+  updateChatHeaderActionsUI(contact);
+
+  // Apply Contact Styling (Font, Theme, Wallpaper, Size, Bubble Style)
+  applyContactChatStyles(contact);
 
   // Update Active Class in List
   renderStudioContactsList();
@@ -1025,10 +1508,23 @@ function setupChatHandlers() {
     });
   });
 
-  // Send Button & Enter Key
-  elements.btnSendSimulated.addEventListener('click', simulateSend);
+  // Send Buttons & Keyboard shortcuts
+  if (elements.btnSendNormal) {
+    elements.btnSendNormal.addEventListener('click', normalSend);
+  }
+  if (elements.btnSendSimulated) {
+    elements.btnSendSimulated.addEventListener('click', simulateSend);
+  }
   elements.simulatedInputText.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') simulateSend();
+    if (e.key === 'Enter') {
+      if (e.shiftKey || e.ctrlKey) {
+        e.preventDefault();
+        simulateSend();
+      } else {
+        e.preventDefault();
+        normalSend();
+      }
+    }
   });
 
   // Contact Filter Search
@@ -1067,6 +1563,50 @@ async function updateContactMode(contactId, mode) {
   }
 }
 
+// Normal Send: Outgoing response as Owner / AI directly (USES TELEGRAM/WHATSAPP API)
+async function normalSend() {
+  const text = elements.simulatedInputText.value.trim();
+  if (!text || !state.activeContactId) return;
+
+  elements.simulatedInputText.value = '';
+  const contact = state.contacts.find(c => c.id === state.activeContactId);
+
+  try {
+    const res = await fetch('/api/chat/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contactId: state.activeContactId,
+        text,
+        senderName: 'Owner',
+        mode: state.activeMode || (contact ? contact.mode : 'personal')
+      })
+    });
+    const data = await res.json();
+    if (!data.success) {
+      alert(`Send Error: ${data.message || data.error}`);
+    } else {
+      // Feedback on real external platform API dispatching
+      if (data.telegramDispatch?.attempted) {
+        if (data.telegramDispatch.success) {
+          showHeaderToast(`✓ Message sent directly to Telegram (@${contact ? contact.name : 'contact'}) via Bot API!`, false);
+        } else {
+          showHeaderToast(`⚠️ Saved in Studio, but Telegram API delivery failed: ${data.telegramDispatch.error}`, true);
+        }
+      } else if (data.whatsappDispatch?.attempted) {
+        if (data.whatsappDispatch.success) {
+          showHeaderToast(`✓ Message sent directly to WhatsApp (${contact ? contact.name : 'contact'})!`, false);
+        } else {
+          showHeaderToast(`⚠️ Saved in Studio, but WhatsApp delivery failed: ${data.whatsappDispatch.error}`, true);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Normal send error', err);
+  }
+}
+
+// Simulate Send: Incoming message from opponent/contact to trigger AI reply pipeline
 async function simulateSend() {
   const text = elements.simulatedInputText.value.trim();
   if (!text || !state.activeContactId) return;
@@ -1091,6 +1631,389 @@ async function simulateSend() {
     }
   } catch (err) {
     console.error('Simulation error', err);
+  }
+}
+
+// ==========================================================================
+// Chat Header Actions & Customization Settings (Font, Color, Wallpaper, Clear, Delete)
+// ==========================================================================
+function updateChatHeaderActionsUI(contact) {
+  if (!contact) return;
+
+  // Auto-Reply status (AI Active vs Manual Only)
+  const isManualOnly = contact.auto_reply === 0;
+  if (elements.btnToggleAutoReply) {
+    elements.btnToggleAutoReply.className = `btn-chat-action ${isManualOnly ? 'active-manual' : 'active-ai'}`;
+    if (elements.autoReplyStatusLabel) {
+      elements.autoReplyStatusLabel.textContent = isManualOnly ? 'Manual Only' : 'AI Active';
+    }
+    if (elements.iconAutoReply) {
+      elements.iconAutoReply.setAttribute('data-lucide', isManualOnly ? 'user-check' : 'bot');
+    }
+    elements.btnToggleAutoReply.title = isManualOnly 
+      ? 'Only Manual Chat Enabled: AI will not auto-respond (Click to enable AI Auto-Reply)'
+      : 'AI Auto-Reply Active (Click to switch to Only Manual Chat)';
+  }
+
+  // Mute status
+  const isMuted = contact.notifications_enabled === 0;
+  if (elements.btnToggleMute) {
+    elements.btnToggleMute.className = `btn-chat-action ${isMuted ? 'muted' : ''}`;
+    if (elements.iconMuteStatus) {
+      elements.iconMuteStatus.setAttribute('data-lucide', isMuted ? 'bell-off' : 'bell');
+    }
+    elements.btnToggleMute.title = isMuted 
+      ? 'Notifications Muted (Click to Unmute)' 
+      : 'Notifications Active (Click to Mute)';
+  }
+
+  if (window.lucide) lucide.createIcons();
+}
+
+function applyContactChatStyles(contact) {
+  if (!elements.chatMessagesContainer || !contact) return;
+
+  const font = (contact.chat_font || 'Inter').toLowerCase().replace(/\s+/g, '');
+  const theme = (contact.chat_theme || 'emerald').toLowerCase();
+  const bg = (contact.chat_background || 'doodle').toLowerCase();
+  const size = (contact.chat_font_size || 'medium').toLowerCase();
+  const bubble = (contact.chat_bubble_style || 'rounded').toLowerCase();
+
+  // Remove previous dynamic customization classes
+  const classesToRemove = [];
+  elements.chatMessagesContainer.classList.forEach(cls => {
+    if (cls.startsWith('chat-font-') || cls.startsWith('chat-theme-') || cls.startsWith('chat-bg-') || cls.startsWith('chat-size-') || cls.startsWith('chat-bubble-')) {
+      classesToRemove.push(cls);
+    }
+  });
+  classesToRemove.forEach(cls => elements.chatMessagesContainer.classList.remove(cls));
+
+  // Add active contact customization classes
+  elements.chatMessagesContainer.classList.add(
+    `chat-font-${font}`,
+    `chat-theme-${theme}`,
+    `chat-bg-${bg}`,
+    `chat-size-${size}`,
+    `chat-bubble-${bubble}`
+  );
+}
+
+function openChatSettingsModal(contact) {
+  if (!contact) return;
+
+  if (elements.modalSettingsContactLabel) {
+    elements.modalSettingsContactLabel.textContent = `Configuring for ${contact.name} (${contact.handle || contact.platform || 'Simulator'})`;
+  }
+
+  // Reset to Appearance tab
+  if (elements.tabBtnAppearance && elements.tabBtnControls) {
+    elements.tabBtnAppearance.classList.add('active');
+    elements.tabBtnControls.classList.remove('active');
+    elements.tabAppearance.style.display = 'block';
+    elements.tabControls.style.display = 'none';
+  }
+
+  // Active Font
+  const currentFont = contact.chat_font || 'Inter';
+  document.querySelectorAll('#fontSelectorGrid .opt-card').forEach(card => {
+    card.classList.toggle('active', card.getAttribute('data-font').toLowerCase() === currentFont.toLowerCase());
+  });
+
+  // Active Theme
+  const currentTheme = contact.chat_theme || 'emerald';
+  document.querySelectorAll('#themeSelectorGrid .theme-card').forEach(card => {
+    card.classList.toggle('active', card.getAttribute('data-theme').toLowerCase() === currentTheme.toLowerCase());
+  });
+
+  // Active Background
+  const currentBg = contact.chat_background || 'doodle';
+  document.querySelectorAll('#bgSelectorGrid .bg-card').forEach(card => {
+    card.classList.toggle('active', card.getAttribute('data-bg').toLowerCase() === currentBg.toLowerCase());
+  });
+
+  // Font Size Dropdown
+  if (elements.selectChatFontSize) {
+    elements.selectChatFontSize.value = contact.chat_font_size || 'medium';
+  }
+
+  // Bubble Style Dropdown
+  if (elements.selectChatBubbleStyle) {
+    elements.selectChatBubbleStyle.value = contact.chat_bubble_style || 'rounded';
+  }
+
+  // Controls switches
+  if (elements.checkManualChatOnly) {
+    elements.checkManualChatOnly.checked = contact.auto_reply === 0;
+  }
+  if (elements.checkChatNotifications) {
+    elements.checkChatNotifications.checked = contact.notifications_enabled !== 0;
+  }
+
+  updateLivePreview();
+  elements.modalChatSettings.classList.remove('hidden');
+  if (window.lucide) lucide.createIcons();
+}
+
+function updateLivePreview() {
+  if (!elements.previewChatContainer) return;
+
+  const activeFontCard = document.querySelector('#fontSelectorGrid .opt-card.active');
+  const activeThemeCard = document.querySelector('#themeSelectorGrid .theme-card.active');
+  const activeBgCard = document.querySelector('#bgSelectorGrid .bg-card.active');
+
+  const font = activeFontCard ? activeFontCard.getAttribute('data-font').toLowerCase().replace(/\s+/g, '') : 'inter';
+  const theme = activeThemeCard ? activeThemeCard.getAttribute('data-theme').toLowerCase() : 'emerald';
+  const bg = activeBgCard ? activeBgCard.getAttribute('data-bg').toLowerCase() : 'doodle';
+  const size = elements.selectChatFontSize ? elements.selectChatFontSize.value.toLowerCase() : 'medium';
+  const bubble = elements.selectChatBubbleStyle ? elements.selectChatBubbleStyle.value.toLowerCase() : 'rounded';
+
+  // Clear preview classes
+  elements.previewChatContainer.className = 'preview-chat-container';
+  elements.previewChatContainer.classList.add(
+    `chat-font-${font}`,
+    `chat-theme-${theme}`,
+    `chat-bg-${bg}`,
+    `chat-size-${size}`,
+    `chat-bubble-${bubble}`
+  );
+}
+
+function setupChatSettingsHandlers() {
+  // 1. Quick Header Toggle: Auto-Reply vs Manual Only
+  if (elements.btnToggleAutoReply) {
+    elements.btnToggleAutoReply.addEventListener('click', async () => {
+      if (!state.activeContactId) return;
+      const contact = state.contacts.find(c => c.id === state.activeContactId);
+      if (!contact) return;
+
+      const newAutoReply = contact.auto_reply === 0 ? 1 : 0;
+      contact.auto_reply = newAutoReply;
+      updateChatHeaderActionsUI(contact);
+
+      try {
+        await fetch(`/api/contacts/${contact.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ auto_reply: newAutoReply })
+        });
+        showHeaderToast(newAutoReply ? '✓ AI Auto-Reply Activated for this contact' : '🔒 Only Manual Chat Enabled: AI will not auto-respond', false);
+      } catch (e) {
+        console.error('Error toggling auto_reply', e);
+      }
+    });
+  }
+
+  // 2. Quick Header Toggle: Notification Mute/Unmute
+  if (elements.btnToggleMute) {
+    elements.btnToggleMute.addEventListener('click', async () => {
+      if (!state.activeContactId) return;
+      const contact = state.contacts.find(c => c.id === state.activeContactId);
+      if (!contact) return;
+
+      const newNotif = (contact.notifications_enabled === 0) ? 1 : 0;
+      contact.notifications_enabled = newNotif;
+      updateChatHeaderActionsUI(contact);
+
+      try {
+        await fetch(`/api/contacts/${contact.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ notifications_enabled: newNotif })
+        });
+        showHeaderToast(newNotif ? '🔔 Notifications unmuted for this contact' : '🔕 Contact muted (no popup or sound alerts)', false);
+      } catch (e) {
+        console.error('Error toggling notification mute', e);
+      }
+    });
+  }
+
+  // 3. Open Chat Settings Modal
+  if (elements.btnOpenChatSettings) {
+    elements.btnOpenChatSettings.addEventListener('click', () => {
+      if (!state.activeContactId) return;
+      const contact = state.contacts.find(c => c.id === state.activeContactId);
+      if (!contact) return;
+
+      openChatSettingsModal(contact);
+    });
+  }
+
+  // Modal Close & Cancel
+  if (elements.btnCloseChatSettingsModal) {
+    elements.btnCloseChatSettingsModal.addEventListener('click', () => {
+      elements.modalChatSettings.classList.add('hidden');
+    });
+  }
+  if (elements.btnCancelChatSettings) {
+    elements.btnCancelChatSettings.addEventListener('click', () => {
+      elements.modalChatSettings.classList.add('hidden');
+    });
+  }
+
+  // Sub-Tab Switching inside Modal
+  if (elements.tabBtnAppearance && elements.tabBtnControls) {
+    elements.tabBtnAppearance.addEventListener('click', () => {
+      elements.tabBtnAppearance.classList.add('active');
+      elements.tabBtnControls.classList.remove('active');
+      elements.tabAppearance.style.display = 'block';
+      elements.tabControls.style.display = 'none';
+    });
+    elements.tabBtnControls.addEventListener('click', () => {
+      elements.tabBtnControls.classList.add('active');
+      elements.tabBtnAppearance.classList.remove('active');
+      elements.tabControls.style.display = 'block';
+      elements.tabAppearance.style.display = 'none';
+    });
+  }
+
+  // Font Selection Cards
+  document.querySelectorAll('#fontSelectorGrid .opt-card').forEach(card => {
+    card.addEventListener('click', () => {
+      document.querySelectorAll('#fontSelectorGrid .opt-card').forEach(c => c.classList.remove('active'));
+      card.classList.add('active');
+      updateLivePreview();
+    });
+  });
+
+  // Theme Swatch Cards
+  document.querySelectorAll('#themeSelectorGrid .theme-card').forEach(card => {
+    card.addEventListener('click', () => {
+      document.querySelectorAll('#themeSelectorGrid .theme-card').forEach(c => c.classList.remove('active'));
+      card.classList.add('active');
+      updateLivePreview();
+    });
+  });
+
+  // Wallpaper Cards
+  document.querySelectorAll('#bgSelectorGrid .bg-card').forEach(card => {
+    card.addEventListener('click', () => {
+      document.querySelectorAll('#bgSelectorGrid .bg-card').forEach(c => c.classList.remove('active'));
+      card.classList.add('active');
+      updateLivePreview();
+    });
+  });
+
+  // Dropdown changes for Preview
+  if (elements.selectChatFontSize) {
+    elements.selectChatFontSize.addEventListener('change', updateLivePreview);
+  }
+  if (elements.selectChatBubbleStyle) {
+    elements.selectChatBubbleStyle.addEventListener('change', updateLivePreview);
+  }
+
+  // Save Settings Button
+  if (elements.btnSaveChatSettings) {
+    elements.btnSaveChatSettings.addEventListener('click', async () => {
+      if (!state.activeContactId) return;
+      const contact = state.contacts.find(c => c.id === state.activeContactId);
+      if (!contact) return;
+
+      const activeFontCard = document.querySelector('#fontSelectorGrid .opt-card.active');
+      const activeThemeCard = document.querySelector('#themeSelectorGrid .theme-card.active');
+      const activeBgCard = document.querySelector('#bgSelectorGrid .bg-card.active');
+
+      const chat_font = activeFontCard ? activeFontCard.getAttribute('data-font') : 'Inter';
+      const chat_theme = activeThemeCard ? activeThemeCard.getAttribute('data-theme') : 'emerald';
+      const chat_background = activeBgCard ? activeBgCard.getAttribute('data-bg') : 'doodle';
+      const chat_font_size = elements.selectChatFontSize ? elements.selectChatFontSize.value : 'medium';
+      const chat_bubble_style = elements.selectChatBubbleStyle ? elements.selectChatBubbleStyle.value : 'rounded';
+      const auto_reply = elements.checkManualChatOnly.checked ? 0 : 1;
+      const notifications_enabled = elements.checkChatNotifications.checked ? 1 : 0;
+
+      // Update state
+      contact.chat_font = chat_font;
+      contact.chat_theme = chat_theme;
+      contact.chat_background = chat_background;
+      contact.chat_font_size = chat_font_size;
+      contact.chat_bubble_style = chat_bubble_style;
+      contact.auto_reply = auto_reply;
+      contact.notifications_enabled = notifications_enabled;
+
+      // Apply to UI
+      applyContactChatStyles(contact);
+      updateChatHeaderActionsUI(contact);
+
+      try {
+        await fetch(`/api/contacts/${contact.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_font,
+            chat_theme,
+            chat_background,
+            chat_font_size,
+            chat_bubble_style,
+            auto_reply,
+            notifications_enabled
+          })
+        });
+        elements.modalChatSettings.classList.add('hidden');
+        showHeaderToast('✓ Chat appearance and controls saved!', false);
+      } catch (err) {
+        console.error('Error saving chat settings', err);
+      }
+    });
+  }
+
+  // Clear Chat History Button
+  if (elements.btnConfirmClearChat) {
+    elements.btnConfirmClearChat.addEventListener('click', async () => {
+      if (!state.activeContactId) return;
+      const contact = state.contacts.find(c => c.id === state.activeContactId);
+      const name = contact ? contact.name : 'this contact';
+
+      if (!confirm(`Are you sure you want to clear all messages for ${name}? This action cannot be undone.`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/contacts/${state.activeContactId}/messages`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+          elements.chatMessagesContainer.innerHTML = '';
+          elements.modalChatSettings.classList.add('hidden');
+          showHeaderToast(`✓ Message history cleared for ${name}`, false);
+        } else {
+          alert(`Error: ${data.error || 'Failed to clear chat'}`);
+        }
+      } catch (e) {
+        console.error('Error clearing chat', e);
+      }
+    });
+  }
+
+  // Delete Contact Button
+  if (elements.btnConfirmDeleteContact) {
+    elements.btnConfirmDeleteContact.addEventListener('click', async () => {
+      if (!state.activeContactId) return;
+      const contact = state.contacts.find(c => c.id === state.activeContactId);
+      const name = contact ? contact.name : 'this contact';
+
+      if (!confirm(`Are you sure you want to permanently delete ${name} and all associated conversation history?`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/contacts/${state.activeContactId}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+          elements.modalChatSettings.classList.add('hidden');
+          showHeaderToast(`✓ Contact ${name} deleted`, false);
+          state.contacts = state.contacts.filter(c => c.id !== state.activeContactId);
+          if (state.contacts.length > 0) {
+            selectContact(state.contacts[0].id);
+          } else {
+            elements.chatMessagesContainer.innerHTML = '';
+            renderStudioContactsList();
+          }
+          loadContacts();
+        } else {
+          alert(`Error: ${data.error || 'Failed to delete contact'}`);
+        }
+      } catch (e) {
+        console.error('Error deleting contact', e);
+      }
+    });
   }
 }
 
@@ -1406,6 +2329,9 @@ function renderContactsTable() {
     tr.querySelector('.btn-delete-contact').addEventListener('click', async () => {
       if (confirm(`Delete contact "${c.name}"?`)) {
         await fetch(`/api/contacts/${c.id}`, { method: 'DELETE' });
+        if (state.activeContactId === c.id) {
+          state.activeContactId = null;
+        }
         await loadContacts();
       }
     });
@@ -1504,90 +2430,421 @@ function showEscalationAlert(data) {
 }
 
 // ==========================================================================
-// Integrations (WhatsApp Web & Telegram)
+// Multi-Account Facility & Channels
 // ==========================================================================
-function setupIntegrationHandlers() {
-  elements.btnGenerateWaQR.addEventListener('click', async () => {
-    try {
-      const res = await fetch('/api/integrations/whatsapp/qr', { method: 'POST' });
-      const data = await res.json();
-      if (data.success) {
-        elements.waStatusBadge.textContent = 'Pairing (Scan QR)';
-        const waImg = data.qrDataUrl
-          ? `<img src="${data.qrDataUrl}" alt="WhatsApp Web QR Code" width="200" height="200" style="display:block;border-radius:6px;" />`
-          : `<div style="padding:16px;color:#000;">${data.qrCode}</div>`;
-
-        elements.waQrBox.innerHTML = `
-          <div style="display:flex;flex-direction:column;align-items:center;gap:10px;">
-            <div style="background:#fff;padding:12px;border-radius:10px;display:inline-block;box-shadow:0 6px 18px rgba(0,0,0,0.3);">
-              ${waImg}
-            </div>
-            <span class="text-xs text-muted">Session Code: ${(data.qrCode || '').substring(0, 24)}...</span>
-          </div>
-        `;
-      }
-    } catch (e) {
-      alert(`WA Error: ${e.message}`);
-    }
-  });
-
-  elements.btnConnectMockWA.addEventListener('click', async () => {
-    const res = await fetch('/api/integrations/whatsapp/connect', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: '+1 (555) 0199-Active' })
-    });
+async function loadAccounts() {
+  if (!elements.accountsListContainer) return;
+  try {
+    const res = await fetch('/api/accounts');
     const data = await res.json();
     if (data.success) {
-      elements.waStatusBadge.textContent = 'Connected (Active)';
-      elements.waStatusBadge.className = 'status-badge connected';
-      elements.waQrBox.innerHTML = '<div style="color:var(--accent-emerald);"><strong>✓ WhatsApp Web Session Active</strong><p class="text-xs text-muted">Ready to receive & reply to incoming chats.</p></div>';
-      elements.btnDisconnectWA.classList.remove('hidden');
+      renderAccounts(data.accounts || []);
     }
+  } catch (e) {
+    console.warn('[Accounts] Error loading accounts:', e.message);
+  }
+}
+
+function renderAccounts(accounts) {
+  if (!elements.accountsListContainer) return;
+  if (accounts.length === 0) {
+    elements.accountsListContainer.innerHTML = '<p class="text-muted text-sm" style="grid-column:1/-1;padding:8px 0;">No accounts added yet. Click "+ Add Account / Bot" to connect a channel.</p>';
+    return;
+  }
+
+  const icons = {
+    whatsapp: { icon: 'message-square', cls: 'wa' },
+    telegram: { icon: 'send', cls: 'tg' },
+    signal: { icon: 'shield-check', cls: 'signal' }
+  };
+
+  elements.accountsListContainer.innerHTML = accounts.map(acc => {
+    const meta = icons[acc.platform] || { icon: 'radio', cls: 'tg' };
+    const isConn = acc.status === 'connected';
+    const statusLabel = isConn ? 'Connected' : (acc.status === 'pairing' ? 'Pairing' : 'Inactive');
+    const badgeClass = isConn ? 'connected' : (acc.status === 'pairing' ? 'pending' : '');
+
+    return `
+      <div class="account-card" data-id="${acc.id}">
+        <div class="account-card-header">
+          <div class="account-card-info">
+            <div class="account-platform-icon ${meta.cls}">
+              <i data-lucide="${meta.icon}"></i>
+            </div>
+            <div class="account-name-block">
+              <h4>${escapeHTML(acc.accountName)}</h4>
+              <p>${escapeHTML(acc.identifier || acc.platform)}</p>
+            </div>
+          </div>
+          <span class="status-badge ${badgeClass}">${statusLabel}</span>
+        </div>
+
+        <div class="account-card-meta">
+          <div class="account-badges">
+            <span class="badge-mode ${acc.mode}">${acc.mode === 'personal' ? '👤 Personal' : '💼 Professional'}</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <label class="account-toggle-label" title="Toggle Auto-Reply on this channel">
+              <input type="checkbox" class="chk-account-autoreply" data-id="${acc.id}" ${acc.autoReply ? 'checked' : ''}>
+              <span>Auto-Reply</span>
+            </label>
+            <button class="btn-icon btn-delete-account" data-id="${acc.id}" title="Remove Account" style="color:var(--accent-danger);background:transparent;border:none;cursor:pointer;padding:3px;">
+              <i data-lucide="trash-2" style="width:14px;height:14px;"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  if (window.lucide) lucide.createIcons();
+
+  // Attach auto-reply toggles
+  elements.accountsListContainer.querySelectorAll('.chk-account-autoreply').forEach(chk => {
+    chk.addEventListener('change', async (e) => {
+      const id = e.target.getAttribute('data-id');
+      try {
+        await fetch(`/api/accounts/${id}/toggle-auto-reply`, { method: 'POST' });
+        showHeaderToast(`Auto-Reply updated for account`);
+      } catch (err) {
+        alert(`Error: ${err.message}`);
+      }
+    });
   });
 
-  elements.btnDisconnectWA.addEventListener('click', async () => {
-    await fetch('/api/integrations/whatsapp/disconnect', { method: 'POST' });
-    elements.waStatusBadge.textContent = 'Disconnected';
-    elements.waStatusBadge.className = 'status-badge';
-    elements.waQrBox.innerHTML = '<div class="qr-placeholder"><i data-lucide="qr-code"></i><p>Click below to generate WhatsApp QR Code</p></div>';
-    elements.btnDisconnectWA.classList.add('hidden');
-    if (window.lucide) lucide.createIcons();
+  // Attach delete buttons
+  elements.accountsListContainer.querySelectorAll('.btn-delete-account').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const id = e.currentTarget.getAttribute('data-id');
+      if (confirm('Are you sure you want to remove this account channel?')) {
+        try {
+          await fetch(`/api/accounts/${id}`, { method: 'DELETE' });
+          showHeaderToast('Account removed');
+          await loadAccounts();
+        } catch (err) {
+          alert(`Error: ${err.message}`);
+        }
+      }
+    });
   });
+}
 
-  // Telegram Token Verification
-  elements.btnVerifyTgToken.addEventListener('click', async () => {
-    const token = elements.tgBotToken.value.trim();
-    if (!token) {
-      alert('Please enter your Telegram Bot token.');
-      return;
+function setupMultiAccountHandlers() {
+  if (elements.btnOpenAddAccountModal && elements.addAccountModal) {
+    elements.btnOpenAddAccountModal.addEventListener('click', () => {
+      elements.addAccountModal.classList.remove('hidden');
+    });
+
+    const closeModal = () => elements.addAccountModal.classList.add('hidden');
+    if (elements.btnCloseAddAccountModal) elements.btnCloseAddAccountModal.addEventListener('click', closeModal);
+    if (elements.btnCancelAddAccountModal) elements.btnCancelAddAccountModal.addEventListener('click', closeModal);
+
+    // Platform change updates input placeholders
+    if (elements.modalAccountPlatform) {
+      elements.modalAccountPlatform.addEventListener('change', (e) => {
+        const plat = e.target.value;
+        if (plat === 'telegram') {
+          if (elements.modalAccountIdentifierLabel) elements.modalAccountIdentifierLabel.textContent = 'Bot Username';
+          if (elements.modalAccountIdentifier) elements.modalAccountIdentifier.placeholder = 'e.g. @MySupportBot';
+          if (elements.modalAccountCredLabel) elements.modalAccountCredLabel.textContent = 'Telegram BotFather Token';
+          if (elements.modalAccountCred) elements.modalAccountCred.placeholder = '123456789:ABCdefGh...';
+        } else if (plat === 'whatsapp') {
+          if (elements.modalAccountIdentifierLabel) elements.modalAccountIdentifierLabel.textContent = 'WhatsApp Phone Number';
+          if (elements.modalAccountIdentifier) elements.modalAccountIdentifier.placeholder = 'e.g. +91 98765 43210';
+          if (elements.modalAccountCredLabel) elements.modalAccountCredLabel.textContent = 'Session Key / Dir (Optional)';
+          if (elements.modalAccountCred) elements.modalAccountCred.placeholder = 'Default session';
+        } else if (plat === 'signal') {
+          if (elements.modalAccountIdentifierLabel) elements.modalAccountIdentifierLabel.textContent = 'Signal Account Number';
+          if (elements.modalAccountIdentifier) elements.modalAccountIdentifier.placeholder = 'e.g. +91 98765 43210';
+          if (elements.modalAccountCredLabel) elements.modalAccountCredLabel.textContent = 'Signal Daemon REST Endpoint';
+          if (elements.modalAccountCred) elements.modalAccountCred.placeholder = 'http://127.0.0.1:8080';
+        }
+      });
     }
 
-    elements.tgStatusBox.innerHTML = '<span class="text-muted">Verifying token with Telegram API...</span>';
+    // Save Account
+    if (elements.btnSaveNewAccount) {
+      elements.btnSaveNewAccount.addEventListener('click', async () => {
+        const platform = elements.modalAccountPlatform.value;
+        const accountName = elements.modalAccountName.value.trim();
+        const identifier = elements.modalAccountIdentifier.value.trim();
+        const cred = elements.modalAccountCred.value.trim();
+        const mode = elements.modalAccountMode.value;
+        const autoReply = elements.modalAccountAutoReply.checked;
 
-    try {
-      const res = await fetch('/api/integrations/telegram/verify', {
+        if (!accountName) {
+          alert('Please enter an account or bot label.');
+          return;
+        }
+
+        let credentials = {};
+        if (platform === 'telegram') credentials = { token: cred };
+        else if (platform === 'signal') credentials = { endpoint: cred || 'http://127.0.0.1:8080' };
+        else credentials = { session_dir: cred };
+
+        try {
+          const res = await fetch('/api/accounts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ platform, accountName, identifier, credentials, mode, autoReply })
+          });
+          const data = await res.json();
+          if (data.success) {
+            closeModal();
+            elements.modalAccountName.value = '';
+            elements.modalAccountIdentifier.value = '';
+            elements.modalAccountCred.value = '';
+            await loadAccounts();
+            showHeaderToast(`✓ Connected ${accountName} (${platform.toUpperCase()})`);
+
+            // If it's a telegram bot with token, start polling immediately
+            if (platform === 'telegram' && cred) {
+              const tgStartRes = await fetch('/api/integrations/telegram/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: cred, accountId: data.account.id, accountName, mode, autoReply })
+              });
+              const tgStartData = await tgStartRes.json();
+              if (!tgStartData.success) {
+                showHeaderToast(`⚠️ Account saved, but Telegram bot connection failed: ${tgStartData.message || tgStartData.error}`, true);
+              }
+              await loadAccounts();
+            }
+          } else {
+            alert(`Error adding account: ${data.message}`);
+          }
+        } catch (err) {
+          alert(`Error: ${err.message}`);
+        }
+      });
+    }
+  }
+}
+
+// ==========================================================================
+// Integrations (WhatsApp Web, Telegram Bot, Signal)
+// ==========================================================================
+function setupIntegrationHandlers() {
+  // WhatsApp Sub-Tabs: Pairing Code vs QR Code
+  if (elements.tabWaPairingBtn && elements.tabWaQrBtn) {
+    elements.tabWaPairingBtn.addEventListener('click', () => {
+      elements.tabWaPairingBtn.classList.add('active');
+      elements.tabWaQrBtn.classList.remove('active');
+      if (elements.waPairingView) elements.waPairingView.style.display = 'block';
+      if (elements.waQrView) elements.waQrView.style.display = 'none';
+    });
+
+    elements.tabWaQrBtn.addEventListener('click', () => {
+      elements.tabWaQrBtn.classList.add('active');
+      elements.tabWaPairingBtn.classList.remove('active');
+      if (elements.waPairingView) elements.waPairingView.style.display = 'none';
+      if (elements.waQrView) elements.waQrView.style.display = 'block';
+    });
+  }
+
+  // WhatsApp 8-Digit Phone Pairing Code Request
+  if (elements.waPhoneInput) {
+    elements.waPhoneInput.addEventListener('change', async () => {
+      const phone = elements.waPhoneInput.value.trim();
+      if (phone) await saveSettings({ whatsapp_phone_number: phone });
+    });
+  }
+
+  if (elements.btnGetWaPairingCode) {
+    elements.btnGetWaPairingCode.addEventListener('click', async () => {
+      const phone = elements.waPhoneInput ? elements.waPhoneInput.value.trim() : '';
+      if (!phone) {
+        alert('Please enter your WhatsApp phone number.');
+        return;
+      }
+      await saveSettings({ whatsapp_phone_number: phone });
+      elements.btnGetWaPairingCode.disabled = true;
+      elements.btnGetWaPairingCode.innerHTML = 'Requesting...';
+
+      try {
+        const res = await fetch('/api/integrations/whatsapp/pairing-code', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone })
+        });
+        const data = await res.json();
+        if (data.success) {
+          if (elements.waPairingCodeBox) elements.waPairingCodeBox.style.display = 'block';
+          if (elements.waPairingCodeDisplay) elements.waPairingCodeDisplay.textContent = data.pairingCode;
+          if (elements.waStatusBadge) {
+            elements.waStatusBadge.textContent = 'Pairing Code Active';
+            elements.waStatusBadge.className = 'status-badge pending';
+          }
+          showHeaderToast(`WhatsApp Code Generated: ${data.pairingCode}`);
+          await loadAccounts();
+        } else {
+          alert(`WA Error: ${data.message}`);
+        }
+      } catch (e) {
+        alert(`WA Error: ${e.message}`);
+      } finally {
+        elements.btnGetWaPairingCode.disabled = false;
+        elements.btnGetWaPairingCode.innerHTML = '<i data-lucide="key"></i> Get Code';
+        if (window.lucide) lucide.createIcons();
+      }
+    });
+  }
+
+  // WhatsApp QR Generation
+  if (elements.btnGenerateWaQR) {
+    elements.btnGenerateWaQR.addEventListener('click', async () => {
+      try {
+        const res = await fetch('/api/integrations/whatsapp/qr', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          if (elements.waStatusBadge) elements.waStatusBadge.textContent = 'Pairing (Scan QR)';
+          const waImg = data.qrDataUrl
+            ? `<img src="${data.qrDataUrl}" alt="WhatsApp Web QR Code" width="220" height="220" style="display:block;border-radius:8px;" />`
+            : `<div style="padding:16px;color:#000;">${data.qrCode}</div>`;
+
+          const sessionInfo = data.qrCodeDisplay || data.qrCode || '';
+          const expiresInfo = data.expiresIn ? `<span class="text-xs text-warning">Expires in: ${data.expiresIn}</span>` : '';
+
+          if (elements.waQrBox) {
+            elements.waQrBox.innerHTML = `
+              <div style="display:flex;flex-direction:column;align-items:center;gap:12px;width:100%;">
+                <div style="background:#ffffff;padding:14px;border-radius:12px;display:inline-block;box-shadow:0 8px 24px rgba(0,0,0,0.35);">
+                  ${waImg}
+                </div>
+                <div style="font-size:11px;color:var(--text-muted);word-break:break-all;text-align:center;padding:4px 10px;max-width:320px;font-family:monospace;background:rgba(0,0,0,0.25);border-radius:6px;border:1px solid rgba(255,255,255,0.06);">
+                  <code>${escapeHTML(sessionInfo.substring(0, 45))}...</code>
+                </div>
+                ${expiresInfo}
+                <div style="color:var(--accent-green);font-size:12px;text-align:center;font-weight:500;">
+                  Open <strong>WhatsApp -> Settings -> Linked Devices -> Link a Device</strong> and scan this QR code
+                </div>
+              </div>
+            `;
+          }
+        }
+      } catch (e) {
+        alert(`WA Error: ${e.message}`);
+      }
+    });
+  }
+
+  // WhatsApp Simulate Connect
+  if (elements.btnConnectMockWA) {
+    elements.btnConnectMockWA.addEventListener('click', async () => {
+      const phone = elements.waPhoneInput ? elements.waPhoneInput.value.trim() : '+1 (555) 234-5678';
+      const res = await fetch('/api/integrations/whatsapp/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token })
+        body: JSON.stringify({ phone })
       });
       const data = await res.json();
       if (data.success) {
-        elements.tgStatusBadge.textContent = 'Connected';
-        elements.tgStatusBadge.className = 'status-badge connected';
-        elements.tgStatusBox.innerHTML = `
-          <div style="color:var(--accent-emerald);">
-            <strong>✓ Bot Connected: @${data.bot.username}</strong>
-            <p class="text-xs text-muted">ID: ${data.bot.id} • Polling active</p>
-          </div>
-        `;
-      } else {
-        elements.tgStatusBox.innerHTML = `<span style="color:var(--accent-danger);">Verification failed: ${data.message}</span>`;
+        if (elements.waStatusBadge) {
+          elements.waStatusBadge.textContent = 'Connected (Active)';
+          elements.waStatusBadge.className = 'status-badge connected';
+        }
+        if (elements.waQrBox) {
+          elements.waQrBox.innerHTML = '<div style="color:var(--accent-emerald);text-align:center;padding:16px;"><strong>✓ WhatsApp Web Session Active</strong><p class="text-xs text-muted">Ready to receive & auto-reply to incoming WhatsApp chats.</p></div>';
+        }
+        if (elements.btnDisconnectWA) elements.btnDisconnectWA.classList.remove('hidden');
+        await loadAccounts();
       }
-    } catch (e) {
-      elements.tgStatusBox.innerHTML = `<span style="color:var(--accent-danger);">Connection error: ${e.message}</span>`;
-    }
-  });
+    });
+  }
+
+  // WhatsApp Disconnect
+  if (elements.btnDisconnectWA) {
+    elements.btnDisconnectWA.addEventListener('click', async () => {
+      await fetch('/api/integrations/whatsapp/disconnect', { method: 'POST' });
+      if (elements.waStatusBadge) {
+        elements.waStatusBadge.textContent = 'Disconnected';
+        elements.waStatusBadge.className = 'status-badge';
+      }
+      if (elements.waQrBox) {
+        elements.waQrBox.innerHTML = '<div class="qr-placeholder"><i data-lucide="qr-code"></i><p>Click below to generate WhatsApp QR Code</p></div>';
+      }
+      if (elements.waPairingCodeBox) elements.waPairingCodeBox.style.display = 'none';
+      elements.btnDisconnectWA.classList.add('hidden');
+      if (window.lucide) lucide.createIcons();
+      await loadAccounts();
+    });
+  }
+
+  // Telegram Start Polling & Verify
+  if (elements.tgBotToken) {
+    elements.tgBotToken.addEventListener('change', async () => {
+      const token = elements.tgBotToken.value.trim();
+      if (token) await saveSettings({ telegram_bot_token: token });
+    });
+  }
+
+  if (elements.btnVerifyTgToken) {
+    elements.btnVerifyTgToken.addEventListener('click', async () => {
+      const token = elements.tgBotToken.value.trim();
+      const mode = elements.tgBotModeSelect ? elements.tgBotModeSelect.value : 'personal';
+
+      if (!token) {
+        alert('Please enter your Telegram Bot token.');
+        return;
+      }
+      await saveSettings({ telegram_bot_token: token });
+
+      elements.tgStatusBox.innerHTML = '<span class="text-muted">Connecting with Telegram Bot API and launching real-time polling...</span>';
+      elements.btnVerifyTgToken.disabled = true;
+
+      try {
+        const res = await fetch('/api/integrations/telegram/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, mode })
+        });
+        const data = await res.json();
+        if (data.success) {
+          if (elements.tgStatusBadge) {
+            elements.tgStatusBadge.textContent = 'Connected (Live)';
+            elements.tgStatusBadge.className = 'status-badge connected';
+          }
+          elements.tgStatusBox.innerHTML = `
+            <div style="color:var(--accent-emerald);">
+              <strong>✓ Bot Live: @${data.bot.username}</strong>
+              <p class="text-xs text-muted" style="margin-top:4px;">ID: ${data.bot.id} • Real-time sequential long polling active. Open Telegram and send any message to <strong>@${data.bot.username}</strong> to test live auto-replies!</p>
+            </div>
+          `;
+          if (elements.btnStopTgBot) elements.btnStopTgBot.classList.remove('hidden');
+          showHeaderToast(`✓ Connected Telegram Bot @${data.bot.username}`);
+          await loadAccounts();
+        } else {
+          elements.tgStatusBox.innerHTML = `<span style="color:var(--accent-danger);">Connection failed: ${data.message || data.error}</span>`;
+        }
+      } catch (e) {
+        elements.tgStatusBox.innerHTML = `<span style="color:var(--accent-danger);">Connection error: ${e.message}</span>`;
+      } finally {
+        elements.btnVerifyTgToken.disabled = false;
+      }
+    });
+  }
+
+  // Telegram Stop Polling
+  if (elements.btnStopTgBot) {
+    elements.btnStopTgBot.addEventListener('click', async () => {
+      try {
+        await fetch('/api/integrations/telegram/stop', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        });
+        if (elements.tgStatusBadge) {
+          elements.tgStatusBadge.textContent = 'Disconnected';
+          elements.tgStatusBadge.className = 'status-badge';
+        }
+        elements.tgStatusBox.innerHTML = '<span class="text-muted">Telegram bot polling stopped.</span>';
+        elements.btnStopTgBot.classList.add('hidden');
+        await loadAccounts();
+      } catch (e) {
+        alert(`Error stopping Telegram bot: ${e.message}`);
+      }
+    });
+  }
 }
 
 // ==========================================================================
@@ -1934,6 +3191,65 @@ function speakMessageWithEmotion(rawText) {
 function setupSignalIntegration() {
   fetchSignalStatus();
 
+  // Test Daemon Reachability
+  if (elements.btnCheckSignalDaemon) {
+    elements.btnCheckSignalDaemon.addEventListener('click', async () => {
+      const endpoint = elements.signalEndpointInput ? elements.signalEndpointInput.value.trim() : 'http://127.0.0.1:8080';
+      elements.btnCheckSignalDaemon.disabled = true;
+      elements.btnCheckSignalDaemon.textContent = 'Testing...';
+      try {
+        const res = await fetch(`/api/integrations/signal/daemon-check?endpoint=${encodeURIComponent(endpoint)}`);
+        const data = await res.json();
+        if (data.online) {
+          if (elements.signalDaemonBanner) {
+            elements.signalDaemonBanner.className = 'daemon-status-banner online';
+            elements.signalDaemonBanner.innerHTML = `
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <strong><i data-lucide="check-circle"></i> Signal Daemon: Online (${escapeHTML(data.version || 'REST API')})</strong>
+                <button class="btn btn-xs btn-outline" id="btnCheckSignalDaemon" style="padding:2px 8px;">Re-check</button>
+              </div>
+              <span class="text-xs">Endpoint: <code>${escapeHTML(data.endpoint)}</code> is responsive and ready for device linking!</span>
+            `;
+          }
+          showHeaderToast('✓ Signal Daemon is Online!');
+        } else {
+          if (elements.signalDaemonBanner) {
+            elements.signalDaemonBanner.className = 'daemon-status-banner offline';
+            elements.signalDaemonBanner.innerHTML = `
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <strong><i data-lucide="alert-circle"></i> Signal Daemon: Offline</strong>
+                <button class="btn btn-xs btn-outline" id="btnCheckSignalDaemon" style="padding:2px 8px;">Retry</button>
+              </div>
+              <span class="text-xs">Daemon not reachable at <code>${escapeHTML(endpoint)}</code>. Run with Docker:</span>
+              <div class="cli-command-box">
+                <span id="signalDockerCmdText">docker run -d -p 8080:8080 -v $HOME/.local/share/signal-cli:/home/.local/share/signal-cli bbernhard/signal-cli-rest-api</span>
+                <button class="btn-copy-cmd" id="btnCopySignalCmd">Copy</button>
+              </div>
+            `;
+          }
+          showHeaderToast('Signal Daemon is not reachable', true);
+        }
+        if (window.lucide) lucide.createIcons();
+      } catch (e) {
+        console.warn('Error checking signal daemon:', e);
+      } finally {
+        elements.btnCheckSignalDaemon.disabled = false;
+        elements.btnCheckSignalDaemon.textContent = 'Test';
+      }
+    });
+  }
+
+  // Copy Docker Command Button
+  if (elements.btnCopySignalCmd) {
+    elements.btnCopySignalCmd.addEventListener('click', () => {
+      const text = elements.signalDockerCmdText ? elements.signalDockerCmdText.textContent : 'docker run -d -p 8080:8080 -v $HOME/.local/share/signal-cli:/home/.local/share/signal-cli bbernhard/signal-cli-rest-api';
+      navigator.clipboard.writeText(text).then(() => {
+        elements.btnCopySignalCmd.textContent = 'Copied!';
+        setTimeout(() => elements.btnCopySignalCmd.textContent = 'Copy', 2000);
+      });
+    });
+  }
+
   // Generate QR linking
   if (elements.btnGenerateSignalQR) {
     elements.btnGenerateSignalQR.addEventListener('click', async () => {
@@ -1974,6 +3290,7 @@ function setupSignalIntegration() {
               </div>
             `;
           }
+          await loadAccounts();
         } else {
           alert(`Signal Link Error: ${data.message}`);
         }
@@ -2010,6 +3327,7 @@ function setupSignalIntegration() {
             `;
           }
           if (elements.btnDisconnectSignal) elements.btnDisconnectSignal.classList.remove('hidden');
+          await loadAccounts();
         }
       } catch (err) {
         alert(`Signal Connection Error: ${err.message}`);
@@ -2036,6 +3354,7 @@ function setupSignalIntegration() {
           if (window.lucide) lucide.createIcons();
         }
         elements.btnDisconnectSignal.classList.add('hidden');
+        await loadAccounts();
       } catch (err) {
         alert(`Disconnect error: ${err.message}`);
       }

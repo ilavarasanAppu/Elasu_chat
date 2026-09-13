@@ -9,6 +9,9 @@ let dbInstance = null;
 function getDb() {
   if (!dbInstance) {
     dbInstance = new sqlite3.Database(DB_PATH);
+    dbInstance.run('PRAGMA foreign_keys = ON;');
+    dbInstance.run('PRAGMA journal_mode = WAL;');
+    dbInstance.run('PRAGMA busy_timeout = 5000;');
   }
   return dbInstance;
 }
@@ -152,10 +155,47 @@ async function initDatabase() {
     )
   `);
 
+  // 8. Connected Accounts Table (Multi-Account Facility)
+  await runAsync(`
+    CREATE TABLE IF NOT EXISTS connected_accounts (
+      id TEXT PRIMARY KEY,
+      platform TEXT NOT NULL, -- 'telegram', 'whatsapp', 'signal'
+      account_name TEXT NOT NULL,
+      identifier TEXT, -- @botusername, phone number, etc.
+      credentials TEXT, -- JSON string
+      mode TEXT DEFAULT 'personal', -- 'personal' or 'professional'
+      auto_reply INTEGER DEFAULT 1,
+      status TEXT DEFAULT 'disconnected', -- 'connected', 'disconnected', 'pairing'
+      is_active INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // Ensure contacts table has chat customization and control columns
+  const contactCustomizationCols = [
+    { name: 'notifications_enabled', type: 'INTEGER DEFAULT 1' },
+    { name: 'chat_font', type: "TEXT DEFAULT 'Inter'" },
+    { name: 'chat_theme', type: "TEXT DEFAULT 'emerald'" },
+    { name: 'chat_background', type: "TEXT DEFAULT 'doodle'" },
+    { name: 'chat_font_size', type: "TEXT DEFAULT 'medium'" },
+    { name: 'chat_bubble_style', type: "TEXT DEFAULT 'rounded'" }
+  ];
+
+  for (const col of contactCustomizationCols) {
+    try {
+      await runAsync(`ALTER TABLE contacts ADD COLUMN ${col.name} ${col.type}`);
+    } catch (e) {
+      // Column exists or syntax already applied
+    }
+  }
+
   // Seed default settings if empty
   await seedDefaultSettings();
   // Seed sample contacts and knowledge docs
   await seedInitialData();
+  // Seed initial connected accounts if empty
+  await seedConnectedAccounts();
 }
 
 async function seedDefaultSettings() {
@@ -179,7 +219,7 @@ async function seedDefaultSettings() {
     
     // Google Gemini settings
     ['gemini_api_key', ''],
-    ['gemini_model', 'gemini-1.5-flash'],
+    ['gemini_model', 'gemini-3.8-flash'],
     
     // OpenRouter settings
     ['openrouter_api_key', ''],
@@ -386,10 +426,60 @@ async function seedInitialData() {
   }
 }
 
+async function seedConnectedAccounts() {
+  const existing = await allAsync(`SELECT id FROM connected_accounts`);
+  if (existing && existing.length > 0) return;
+
+  const defaultAccounts = [
+    {
+      id: 'acc_wa_primary',
+      platform: 'whatsapp',
+      account_name: 'Personal WhatsApp',
+      identifier: '+1 (555) 234-5678',
+      credentials: JSON.stringify({ session_dir: 'whatsapp_sessions/acc_wa_primary' }),
+      mode: 'personal',
+      auto_reply: 1,
+      status: 'connected',
+      is_active: 1
+    },
+    {
+      id: 'acc_tg_primary',
+      platform: 'telegram',
+      account_name: 'Personal Telegram Bot',
+      identifier: '@GhostReplyAssistantBot',
+      credentials: JSON.stringify({ token: '' }),
+      mode: 'personal',
+      auto_reply: 1,
+      status: 'disconnected',
+      is_active: 1
+    },
+    {
+      id: 'acc_signal_primary',
+      platform: 'signal',
+      account_name: 'Signal Personal Device',
+      identifier: '+91 98765 43210',
+      credentials: JSON.stringify({ endpoint: 'http://127.0.0.1:8080' }),
+      mode: 'personal',
+      auto_reply: 1,
+      status: 'disconnected',
+      is_active: 1
+    }
+  ];
+
+  for (const acc of defaultAccounts) {
+    await runAsync(
+      `INSERT OR IGNORE INTO connected_accounts (id, platform, account_name, identifier, credentials, mode, auto_reply, status, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [acc.id, acc.platform, acc.account_name, acc.identifier, acc.credentials, acc.mode, acc.auto_reply, acc.status, acc.is_active]
+    );
+  }
+}
+
 module.exports = {
   getDb,
   runAsync,
   allAsync,
   getAsync,
-  initDatabase
+  initDatabase,
+  seedConnectedAccounts
 };

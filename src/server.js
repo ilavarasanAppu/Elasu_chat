@@ -9,8 +9,11 @@ const { initDatabase } = require('./db/database');
 const apiRoutes = require('./routes/api');
 const decisionEngine = require('./services/decisionEngine');
 const signalService = require('./services/signalService');
+const whatsappService = require('./services/whatsappService');
+const accountService = require('./services/accountService');
 
 signalService.setDecisionEngine(decisionEngine);
+whatsappService.setDecisionEngine(decisionEngine);
 
 const app = express();
 const server = http.createServer(app);
@@ -77,6 +80,9 @@ initDatabase()
 • Mode 1:           Professional (RAG & Knowledge Base)
 • Mode 2:           Personal (Persona & Linguistic Mirroring)
       `);
+
+      // Auto-start active connected accounts (Telegram bots, etc.)
+      accountService.startAllActiveAccounts(decisionEngine);
     });
   })
   .catch(err => {

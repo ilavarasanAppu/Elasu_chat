@@ -34,6 +34,19 @@ class PersonalityService {
   }
 
   /**
+   * Safely parse JSON strings with fallback value
+   */
+  safeJsonParse(val, fallback = {}) {
+    if (val === null || val === undefined) return fallback;
+    if (typeof val !== 'string') return val;
+    try {
+      return JSON.parse(val);
+    } catch {
+      return fallback;
+    }
+  }
+
+  /**
    * Parse WhatsApp Export Text File (_chat.txt)
    */
   parseWhatsAppChat(fileContent, primaryUser = '') {
@@ -274,11 +287,11 @@ class PersonalityService {
    * Build Personal Mode System Prompt with Tanglish & Multi-Language Support
    */
   buildPersonalPrompt({ userName = 'Alex', contactName = 'Friend', profile = {}, preferredLanguage = 'tanglish', codeSwitchingRatio = '98' }) {
-    const abbrevMap = typeof profile.abbreviation_map === 'string' ? JSON.parse(profile.abbreviation_map || '{}') : (profile.abbreviation_map || {});
-    const excitement = typeof profile.excitement_markers === 'string' ? JSON.parse(profile.excitement_markers || '[]') : (profile.excitement_markers || []);
-    const emojis = typeof profile.favorite_emojis === 'string' ? JSON.parse(profile.favorite_emojis || '[]') : (profile.favorite_emojis || []);
-    const jokes = typeof profile.inside_jokes === 'string' ? JSON.parse(profile.inside_jokes || '[]') : (profile.inside_jokes || []);
-    const fewShot = typeof profile.few_shot_examples === 'string' ? JSON.parse(profile.few_shot_examples || '[]') : (profile.few_shot_examples || []);
+    const abbrevMap = this.safeJsonParse(profile.abbreviation_map, {});
+    const excitement = this.safeJsonParse(profile.excitement_markers, []);
+    const emojis = this.safeJsonParse(profile.favorite_emojis, []);
+    const jokes = this.safeJsonParse(profile.inside_jokes, []);
+    const fewShot = this.safeJsonParse(profile.few_shot_examples, []);
 
     const lang = (preferredLanguage || profile.primary_language || 'tanglish').toLowerCase();
 
@@ -535,7 +548,7 @@ RESPOND AS ${userName} (ONLY THE TEXT MESSAGE):`;
     }
 
     // Apply abbreviations if not present
-    const abbrevMap = typeof profile.abbreviation_map === 'string' ? JSON.parse(profile.abbreviation_map || '{}') : (profile.abbreviation_map || {});
+    const abbrevMap = this.safeJsonParse(profile.abbreviation_map, {});
     for (const [full, short] of Object.entries(abbrevMap)) {
       const reg = new RegExp(`\\b${full}\\b`, 'gi');
       if (Math.random() > 0.3) {

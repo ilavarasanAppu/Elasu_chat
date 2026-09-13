@@ -70,14 +70,15 @@ class LLMService {
         text: this.cleanOutput(res.text)
       };
     } catch (err) {
-      console.warn(`[LLMService] Provider ${provider} failed (${err.message}). Falling back to Smart Fallback Engine...`);
+      const detailedError = err.response?.data?.error?.message || err.message;
+      console.warn(`[LLMService] Provider ${provider} failed (${detailedError}). Falling back to Smart Fallback Engine...`);
       const fallbackResponse = await this.callSmartMock({ system, user, history, mode, extraContext, settings });
       return {
         text: this.cleanOutput(fallbackResponse.text),
-        provider: `${provider} (Fallback: ${err.message})`,
+        provider: `${provider} (Fallback: ${detailedError})`,
         model: 'smart-fallback',
         isFallback: true,
-        error: err.message
+        error: detailedError
       };
     }
   }
@@ -262,53 +263,153 @@ class LLMService {
   }
 
   // 4. Google Gemini API
-  async callGemini({ system, user, history, temperature, max_tokens, settings }) {
-    const apiKey = settings.gemini_api_key;
-    const model = settings.gemini_model || 'gemini-1.5-flash';
+  async callGemini({ system, user, history = [], temperature, max_tokens, settings }) {
+    const apiKey = (settings.gemini_api_key || '').trim();
+    let rawModel = (settings.gemini_model || 'gemini-3.8-flash').trim();
+    let model = rawModel.replace(/^models\//, '') || 'gemini-3.8-flash';
+
+    // Proactively remap retired or unavailable models to prevent 404
+    if (model === 'gemini-2.5-pro' || model === 'gemini-1.5-pro' || model === 'gemini-1.5-flash' || model === 'gemini-2.5-flash-lite') {
+      console.warn(`[Gemini] Model "${model}" is retired by Google. Auto-mapping to gemini-3.8-flash...`);
+      model = 'gemini-3.8-flash';
+    }
 
     if (!apiKey) {
-      throw new Error('Google Gemini API Key is missing');
+      throw new Error('Google Gemini API Key is missing. Please enter your API Key in Settings.');
     }
 
     // Google Gemini Generative Language REST API endpoint
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
-    const contents = [];
-    // System instruction can be prepended or passed as system_instruction
-    const systemInstruction = {
-      role: 'system',
-      parts: [{ text: system }]
-    };
-
-    history.forEach(h => {
+    // Build strictly alternating multi-turn conversation for Gemini API:
+    // 1. Alternating turns: user -> model -> user -> model ...
+    // 2. First turn MUST be 'user'
+    // 3. Consecutive turns with same role must be merged
+    // 4. Cannot have empty parts
+    const rawTurns = [];
+    (history || []).forEach(h => {
       const role = (h.direction === 'incoming' || h.role === 'user') ? 'user' : 'model';
-      contents.push({
-        role,
-        parts: [{ text: h.text || h.content }]
-      });
+      const text = (h.text || h.content || '').trim();
+      if (text) {
+        rawTurns.push({ role, text });
+      }
     });
 
-    contents.push({
-      role: 'user',
-      parts: [{ text: user }]
-    });
+    const sanitizedContents = [];
+    for (const turn of rawTurns) {
+      if (sanitizedContents.length === 0) {
+        if (turn.role === 'user') {
+          sanitizedContents.push({ role: 'user', parts: [{ text: turn.text }] });
+        }
+        // If first history message was from model, skip it to guarantee first turn is user
+      } else {
+        const lastTurn = sanitizedContents[sanitizedContents.length - 1];
+        if (lastTurn.role === turn.role) {
+          // Merge consecutive same-role turns to avoid 400 Bad Request
+          lastTurn.parts[0].text += `\n${turn.text}`;
+        } else {
+          sanitizedContents.push({ role: turn.role, parts: [{ text: turn.text }] });
+        }
+      }
+    }
+
+    // Add current user prompt
+    const userPrompt = (user || '').trim();
+    if (!userPrompt) {
+      throw new Error('User prompt cannot be empty');
+    }
+
+    if (sanitizedContents.length === 0) {
+      sanitizedContents.push({ role: 'user', parts: [{ text: userPrompt }] });
+    } else {
+      const lastTurn = sanitizedContents[sanitizedContents.length - 1];
+      if (lastTurn.role === 'user') {
+        // Merge into last user turn if previous turn was also user
+        lastTurn.parts[0].text += `\n${userPrompt}`;
+      } else {
+        sanitizedContents.push({ role: 'user', parts: [{ text: userPrompt }] });
+      }
+    }
+
+    // Allocate sufficient tokens for thinking models (Gemini 2.5/3.x models spend tokens on reasoning)
+    const effectiveMaxTokens = Math.max(max_tokens || 1000, 1000);
 
     const payload = {
-      system_instruction: systemInstruction,
-      contents,
+      contents: sanitizedContents,
       generationConfig: {
-        temperature,
-        maxOutputTokens: max_tokens
+        temperature: typeof temperature === 'number' ? temperature : 0.7,
+        maxOutputTokens: effectiveMaxTokens
       }
     };
 
-    const res = await axios.post(url, payload, {
-      headers: { 'Content-Type': 'application/json' },
-      timeout: 60000
-    });
+    // system_instruction is supported in Gemini v1beta REST API
+    if (system && system.trim()) {
+      payload.system_instruction = {
+        parts: [{ text: system.trim() }]
+      };
+    }
 
-    const reply = res.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    return { text: reply.trim(), provider: 'Google Gemini', model };
+    try {
+      const res = await axios.post(url, payload, {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 60000
+      });
+
+      const candidate = res.data?.candidates?.[0];
+      const reply = candidate?.content?.parts?.map(p => p.text).filter(Boolean).join('\n') || '';
+
+      if (!reply && candidate?.finishReason && candidate.finishReason !== 'STOP') {
+        throw new Error(`Gemini generation stopped: ${candidate.finishReason}`);
+      }
+
+      if (!reply) {
+        throw new Error('Gemini returned an empty reply. Check safety filters or model name.');
+      }
+
+      return { text: reply.trim(), provider: 'Google Gemini', model };
+    } catch (err) {
+      const apiMsg = err.response?.data?.error?.message;
+      const statusCode = err.response?.status;
+
+      // Auto-recovery: If selected model is retired (404), quota-blocked, or experiencing temporary high demand (503)
+      const isRetriableError = apiMsg && (
+        apiMsg.includes('no longer available') ||
+        apiMsg.includes('Quota exceeded') ||
+        apiMsg.includes('limit: 0') ||
+        apiMsg.includes('high demand') ||
+        statusCode === 503 ||
+        statusCode === 404
+      );
+
+      if (isRetriableError) {
+        const fallbackTarget = (model === 'gemini-2.5-flash') ? 'gemini-3.8-flash' : 'gemini-2.5-flash';
+        console.warn(`[Gemini] Model "${model}" hit (${apiMsg}). Auto-switching to ${fallbackTarget}...`);
+        try {
+          const fallbackUrl = `https://generativelanguage.googleapis.com/v1beta/models/${fallbackTarget}:generateContent?key=${encodeURIComponent(apiKey)}`;
+          const fbRes = await axios.post(fallbackUrl, payload, {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 60000
+          });
+          const fbCandidate = fbRes.data?.candidates?.[0];
+          const fbReply = fbCandidate?.content?.parts?.map(p => p.text).filter(Boolean).join('\n') || '';
+          if (fbReply) {
+            runAsync(`UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = 'gemini_model'`, [fallbackTarget]).catch(() => {});
+            return {
+              text: fbReply.trim(),
+              provider: 'Google Gemini',
+              model: `${fallbackTarget} (auto-recovered from ${model})`
+            };
+          }
+        } catch (retryErr) {
+          console.warn(`[Gemini] Fallback to ${fallbackTarget} failed:`, retryErr.message);
+        }
+      }
+
+      if (apiMsg) {
+        throw new Error(`Gemini API Error (${statusCode || 400}): ${apiMsg}`);
+      }
+      throw err;
+    }
   }
 
   // 5. OpenRouter Integration
@@ -475,9 +576,51 @@ class LLMService {
               provider: "Smart Fallback Engine",
               model: "persona-mirror-engine"
             };
-          } else {
+          } else if (lowerUser.includes('json') || lowerUser.includes('store') || lowerUser.includes('db') || lowerUser.includes('database')) {
             return {
-              text: "machan sema da! 😂 apram enna vishayam? epdi poguthu?",
+              text: "aama da! sqlite database la ghostreply.db table messages la clean ah store aagudhu 👍",
+              provider: "Smart Fallback Engine",
+              model: "persona-mirror-engine"
+            };
+          } else if (lowerUser.includes('fallback') || lowerUser.includes('gemini') || lowerUser.includes('quota') || lowerUser.includes('rate limit')) {
+            return {
+              text: "aama da, Gemini quota free tier limit aayirukku (429)! adhanala Smart Fallback la dynamic ah reply panren 👍",
+              provider: "Smart Fallback Engine",
+              model: "persona-mirror-engine"
+            };
+          } else if (lowerUser.includes('orey') || lowerUser.includes('same') || lowerUser.includes('repeat') || lowerUser.includes('yenna')) {
+            return {
+              text: "haha illada 😂 Gemini rate limit hit aana udaney fallback switch aachu. ippo sollu enna seiyalam?",
+              provider: "Smart Fallback Engine",
+              model: "persona-mirror-engine"
+            };
+          } else if (lowerUser.includes('hi') || lowerUser.includes('hello') || lowerUser.includes('hai') || lowerUser.includes('vanakkam')) {
+            const greetings = [
+              "vanakkam da machan! enna vishayam innaiku? 😂",
+              "hey da! epdi irukka? enna panitu irukka rn?",
+              "yo bro! solluda, what's up innaiku? 🔥"
+            ];
+            return {
+              text: greetings[Math.floor(Math.random() * greetings.length)],
+              provider: "Smart Fallback Engine",
+              model: "persona-mirror-engine"
+            };
+          } else if (lowerUser.includes('epdi irukka') || lowerUser.includes('how are you') || lowerUser.includes('sugama')) {
+            return {
+              text: "nalla irukken da machan! unakku epdi pogudhu innaiku? sema chill ah? 🔥",
+              provider: "Smart Fallback Engine",
+              model: "persona-mirror-engine"
+            };
+          } else {
+            const randomCasual = [
+              "machan sema da! 😂 apram enna vishayam? epdi poguthu?",
+              "seri da paathukalam! Vera enna vishayam sollu? 🔥",
+              "haha aama da! aprom innaiku plan enna?",
+              "pakka da! konjam busy, but sollu enna matter? 👍",
+              "mudila da 😂 innaiku full busy! nee enna pandre rn?"
+            ];
+            return {
+              text: randomCasual[Math.floor(Math.random() * randomCasual.length)],
               provider: "Smart Fallback Engine",
               model: "persona-mirror-engine"
             };
@@ -574,11 +717,43 @@ class LLMService {
           return { success: true, message: `Connected to OpenAI Compatible API!`, models };
         }
         case 'gemini': {
-          const apiKey = active.gemini_api_key;
-          if (!apiKey) return { success: false, message: 'Gemini API key is missing.' };
-          const res = await axios.get(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`, { timeout: 7000 });
+          const apiKey = (active.gemini_api_key || '').trim();
+          if (!apiKey) return { success: false, message: 'Gemini API key is missing. Please enter your API key.' };
+          let model = (active.gemini_model || 'gemini-3.8-flash').trim().replace(/^models\//, '');
+          if (model === 'gemini-2.5-pro' || model === 'gemini-1.5-pro') model = 'gemini-3.8-flash';
+
+          // 1. Test models list endpoint
+          const res = await axios.get(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`, { timeout: 8000 });
           const models = (res.data?.models || []).map(m => m.name.replace('models/', ''));
-          return { success: true, message: `Connected to Google Gemini! Found ${models.length} models.`, models };
+
+          // 2. Perform live reply verification with selected model
+          const startTime = Date.now();
+          let replySample = 'OK';
+          let latency = 0;
+          try {
+            const genUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+            const genRes = await axios.post(genUrl, {
+              contents: [{ role: 'user', parts: [{ text: 'Ping! Reply with "OK".' }] }],
+              generationConfig: { maxOutputTokens: 10, temperature: 0.1 }
+            }, { timeout: 10000 });
+            latency = Date.now() - startTime;
+            replySample = genRes.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || 'OK';
+            return {
+              success: true,
+              message: `✓ Connected to Google Gemini! Model "${model}" verified in ${latency}ms (Reply: "${replySample}"). Found ${models.length} available models.`,
+              models,
+              model,
+              latency,
+              reply: replySample
+            };
+          } catch (genErr) {
+            const genErrMsg = genErr.response?.data?.error?.message || genErr.message;
+            return {
+              success: false,
+              message: `API Key is valid (${models.length} models found), but model "${model}" failed to generate: ${genErrMsg}. We recommend selecting "gemini-3.8-flash" or "gemini-2.5-flash".`,
+              models
+            };
+          }
         }
         case 'openrouter': {
           const apiKey = active.openrouter_api_key;
@@ -655,18 +830,86 @@ class LLMService {
           return { success: true, models, message: `Found ${models.length} chat models` };
         }
         case 'gemini': {
-          const apiKey = active.gemini_api_key;
-          if (!apiKey) return { success: false, message: 'Gemini API key required', models: [] };
-          const res = await axios.get(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`, { timeout: 10000 });
+          const apiKey = (active.gemini_api_key || '').trim();
+          if (!apiKey) {
+            // Provide curated modern default models even before key is entered
+            return {
+              success: true,
+              models: [
+                { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash (Latest Flagship)', description: 'Fastest next-gen flagship high efficiency' },
+                { id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash (Hybrid Reasoning)', description: 'High capability dynamic thinking flash' },
+                { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', description: 'Production balanced flash model' },
+                { id: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite', description: 'Ultra low latency & lightweight' },
+                { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash (Stable)', description: 'Proven high speed production model' },
+                { id: 'gemini-flash-latest', name: 'Gemini Flash Latest', description: 'Always points to newest stable flash version' }
+              ],
+              message: 'Showing default Gemini models (Enter API Key to load account models)'
+            };
+          }
+
+          const res = await axios.get(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`, { timeout: 10000 });
           const rawModels = res.data?.models || [];
-          const models = rawModels
-            .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent'))
-            .map(m => ({
-              id: m.name.replace('models/', ''),
-              name: m.displayName || m.name.replace('models/', ''),
+          
+          // Filter to models supporting generateContent and exclude embeddings, tts, retired, and interactions-only models
+          const validModels = rawModels.filter(m => {
+            const methods = m.supportedGenerationMethods || [];
+            const name = (m.name || '').toLowerCase();
+            return methods.includes('generateContent') &&
+              !name.includes('embedding') &&
+              !name.includes('aqa') &&
+              !name.includes('imagen') &&
+              !name.includes('whisper') &&
+              !name.includes('tts') &&
+              !name.includes('image') &&
+              !name.includes('lyria') &&
+              !name.includes('transcribe') &&
+              !name.includes('banana') &&
+              !name.includes('robotics') &&
+              !name.includes('antigravity') &&
+              !name.includes('deep-research') &&
+              !name.includes('customtools') &&
+              !name.includes('computer-use') &&
+              !name.includes('bison') &&
+              !name.includes('2.5-pro') &&
+              !name.includes('2.5-flash-lite');
+          });
+
+          // Priority ranking to place latest & best Gemini models at the top
+          const getPriority = (id) => {
+            const lower = id.toLowerCase();
+            if (lower === 'gemini-3.8-flash') return 120;
+            if (lower === 'gemini-3.7-flash') return 115;
+            if (lower === 'gemini-3.6-flash') return 110;
+            if (lower === 'gemini-3.5-flash') return 105;
+            if (lower === 'gemini-3.1-flash-lite') return 100;
+            if (lower === 'gemini-3.1-flash-lite-preview') return 95;
+            if (lower === 'gemini-flash-latest') return 90;
+            if (lower === 'gemini-2.5-flash') return 85;
+            if (lower === 'gemini-flash-lite-latest') return 80;
+            if (lower.includes('3.5-flash-lite')) return 75;
+            if (lower.includes('3-flash')) return 70;
+            if (lower.includes('gemma')) return 60;
+            return 40;
+          };
+
+          validModels.sort((a, b) => {
+            const idA = a.name.replace('models/', '');
+            const idB = b.name.replace('models/', '');
+            const pDiff = getPriority(idB) - getPriority(idA);
+            if (pDiff !== 0) return pDiff;
+            return idA.localeCompare(idB);
+          });
+
+          const models = validModels.map(m => {
+            const cleanId = m.name.replace('models/', '');
+            return {
+              id: cleanId,
+              name: m.displayName ? `${m.displayName} (${cleanId})` : cleanId,
               description: m.description || null
-            }));
-          return { success: true, models, message: `Found ${models.length} generative models` };
+            };
+          });
+
+          return { success: true, models, message: `Found ${models.length} active generative models` };
         }
         case 'openrouter': {
           const apiKey = active.openrouter_api_key;
@@ -711,6 +954,68 @@ class LLMService {
       }
     } catch (err) {
       return { success: false, message: `Failed to fetch models: ${err.message}`, models: [] };
+    }
+  }
+
+  // Live generation test confirming that the provider & model actively reply
+  async testLiveGeneration(provider, customConfig = {}) {
+    const settings = await this.getSettings();
+    const activeProvider = provider || customConfig.active_provider || settings.active_provider || 'mock';
+    const active = { ...settings, ...customConfig, active_provider: activeProvider };
+    const model = active[`${activeProvider}_model`] || 'default';
+    const startTime = Date.now();
+
+    try {
+      let res;
+      switch (activeProvider.toLowerCase()) {
+        case 'ollama':
+          res = await this.callOllama({ system: 'You are an AI ping tester.', user: 'Hello, reply with "OK".', history: [], temperature: 0.1, max_tokens: 15, settings: active });
+          break;
+        case 'lmstudio':
+          res = await this.callLMStudio({ system: 'You are an AI ping tester.', user: 'Hello, reply with "OK".', history: [], temperature: 0.1, max_tokens: 15, settings: active });
+          break;
+        case 'openai':
+          res = await this.callOpenAI({ system: 'You are an AI ping tester.', user: 'Hello, reply with "OK".', history: [], temperature: 0.1, max_tokens: 15, settings: active });
+          break;
+        case 'gemini':
+          res = await this.callGemini({ system: 'You are an AI ping tester.', user: 'Hello, reply with "OK".', history: [], temperature: 0.1, max_tokens: 15, settings: active });
+          break;
+        case 'openrouter':
+          res = await this.callOpenRouter({ system: 'You are an AI ping tester.', user: 'Hello, reply with "OK".', history: [], temperature: 0.1, max_tokens: 15, settings: active });
+          break;
+        case 'nvidia':
+          res = await this.callNvidia({ system: 'You are an AI ping tester.', user: 'Hello, reply with "OK".', history: [], temperature: 0.1, max_tokens: 15, settings: active });
+          break;
+        case 'mock':
+        default:
+          res = await this.callSmartMock({ system: 'Mock Test', user: 'ping', history: [], mode: 'personal', settings: active });
+          break;
+      }
+
+      const latency = Date.now() - startTime;
+      const cleanReply = this.cleanOutput(res.text);
+
+      return {
+        success: true,
+        isFallback: false,
+        provider: res.provider || activeProvider,
+        model: res.model || model,
+        latency,
+        reply: cleanReply,
+        message: `✓ Confirmed! ${res.provider || activeProvider} (${res.model || model}) is active and replying (${latency}ms). Reply: "${cleanReply.substring(0, 80)}"`
+      };
+    } catch (err) {
+      const latency = Date.now() - startTime;
+      const detailedError = err.response?.data?.error?.message || err.message;
+      return {
+        success: false,
+        isFallback: true,
+        provider: activeProvider,
+        model,
+        latency,
+        error: detailedError,
+        message: `AI Model test failed for ${activeProvider} (${model}): ${detailedError}`
+      };
     }
   }
 }
