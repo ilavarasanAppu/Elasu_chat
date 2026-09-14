@@ -2,6 +2,23 @@ const axios = require('axios');
 const { getAsync, allAsync, runAsync } = require('../db/database');
 
 class LLMService {
+  constructor() {
+    this.lastDebugInfo = null;
+    this.debugHistory = [];
+  }
+
+  getLastDebugInfo() {
+    return this.lastDebugInfo;
+  }
+
+  recordDebugHistory(debugObj) {
+    if (!debugObj) return;
+    this.debugHistory.unshift(debugObj);
+    if (this.debugHistory.length > 50) {
+      this.debugHistory.length = 50;
+    }
+  }
+
   async getSettings() {
     const rows = await allAsync(`SELECT key, value FROM settings`);
     const settings = {};
@@ -153,13 +170,39 @@ class LLMService {
   async generateResponse({ system, user, history = [], temperature = 0.7, max_tokens = 300, mode = 'personal', extraContext = {} }) {
     const settings = await this.getSettings();
     const primaryProvider = (settings.active_provider || 'mock').toLowerCase();
+    const overallStart = Date.now();
+    const debugStages = [];
 
     // If user explicitly configured mock / smart fallback as primary
     if (primaryProvider === 'mock') {
+      const t0 = Date.now();
       const res = await this.callSmartMock({ system, user, history, mode, extraContext, settings });
+      const latency = Date.now() - t0;
+      const debug = {
+        timestamp: new Date().toISOString(),
+        primaryProvider: 'mock',
+        primaryModel: 'smart-fallback',
+        success: true,
+        finalProvider: 'Smart Fallback Engine',
+        finalModel: 'smart-fallback',
+        totalLatencyMs: latency,
+        attempts: [{
+          stage: 1,
+          stageName: 'Smart Mock Engine (Direct)',
+          provider: 'mock',
+          model: 'smart-fallback',
+          success: true,
+          latencyMs: latency,
+          telemetry: res.debug || null,
+          error: null
+        }]
+      };
+      this.lastDebugInfo = debug;
+      this.recordDebugHistory(debug);
       return {
         ...res,
-        text: this.cleanOutput(res.text)
+        text: this.cleanOutput(res.text),
+        debug
       };
     }
 
@@ -168,53 +211,148 @@ class LLMService {
     let error2 = null;
 
     // ── STAGE 1: Attempt AI Model 1 (Primary) ──────────────────────────────────
+    let stage1Telemetry = null;
     try {
       console.log(`[LLMService] Attempting AI Model 1: ${primaryProvider} (${primaryModel}), min timeout 20s...`);
+      const t1 = Date.now();
       const res1 = await this.invokeProvider(primaryProvider, {
         system, user, history, temperature, max_tokens, mode, extraContext, settings
       });
+      const latency1 = Date.now() - t1;
+      stage1Telemetry = res1.debug || null;
+
       if (res1 && res1.text && res1.text.trim()) {
+        const cleanedText = this.cleanOutput(res1.text);
+        const stage1Debug = {
+          stage: 1,
+          stageName: `Primary AI Model (${primaryProvider})`,
+          provider: primaryProvider,
+          model: primaryModel,
+          success: true,
+          latencyMs: latency1,
+          telemetry: stage1Telemetry,
+          error: null
+        };
+        debugStages.push(stage1Debug);
+
+        const debugObj = {
+          timestamp: new Date().toISOString(),
+          primaryProvider,
+          primaryModel,
+          success: true,
+          finalProvider: res1.provider || primaryProvider,
+          finalModel: res1.model || primaryModel,
+          totalLatencyMs: Date.now() - overallStart,
+          attempts: debugStages
+        };
+        this.lastDebugInfo = debugObj;
+        this.recordDebugHistory(debugObj);
+
         return {
           ...res1,
-          text: this.cleanOutput(res1.text),
-          aiAttempt: 1
+          text: cleanedText,
+          aiAttempt: 1,
+          debug: debugObj
         };
       }
       throw new Error(`AI Model 1 (${primaryProvider}) produced empty reply`);
     } catch (err) {
       error1 = err.response?.data?.error?.message || err.message;
+      stage1Telemetry = err.debugTelemetry || stage1Telemetry;
       console.warn(`[LLMService] ⚠️ AI Model 1 (${primaryProvider}/${primaryModel}) failed: ${error1}`);
+      debugStages.push({
+        stage: 1,
+        stageName: `Primary AI Model (${primaryProvider})`,
+        provider: primaryProvider,
+        model: primaryModel,
+        success: false,
+        latencyMs: Date.now() - overallStart,
+        telemetry: stage1Telemetry,
+        error: error1
+      });
     }
 
     // ── STAGE 2: Attempt AI Model 2 (Secondary Fallback AI Model) ──────────────
+    let stage2Telemetry = null;
     const secondary = this.getSecondaryAICandidate(primaryProvider, settings);
     if (secondary) {
       const secondaryProvider = secondary.provider;
       const secondaryModel = secondary.model || settings[`${secondaryProvider}_model`] || 'default';
       try {
         console.log(`[LLMService] Routing to AI Model 2: ${secondaryProvider} (${secondaryModel}), min timeout 20s...`);
+        const t2 = Date.now();
         const res2 = await this.invokeProvider(secondaryProvider, {
           system, user, history, temperature, max_tokens, mode, extraContext, settings, modelOverride: secondaryModel
         });
+        const latency2 = Date.now() - t2;
+        stage2Telemetry = res2.debug || null;
+
         if (res2 && res2.text && res2.text.trim()) {
           console.log(`[LLMService] ✓ AI Model 2 (${secondaryProvider}/${secondaryModel}) succeeded after Model 1 failed!`);
+          const cleanedText = this.cleanOutput(res2.text);
+          debugStages.push({
+            stage: 2,
+            stageName: `Secondary AI Backup (${secondaryProvider})`,
+            provider: secondaryProvider,
+            model: secondaryModel,
+            success: true,
+            latencyMs: latency2,
+            telemetry: stage2Telemetry,
+            error: null
+          });
+
+          const debugObj = {
+            timestamp: new Date().toISOString(),
+            primaryProvider,
+            primaryModel,
+            success: true,
+            finalProvider: `${res2.provider || secondaryProvider} (2nd AI Model Fallback)`,
+            finalModel: secondaryModel,
+            totalLatencyMs: Date.now() - overallStart,
+            attempts: debugStages
+          };
+          this.lastDebugInfo = debugObj;
+          this.recordDebugHistory(debugObj);
+
           return {
             ...res2,
-            text: this.cleanOutput(res2.text),
+            text: cleanedText,
             provider: `${res2.provider || secondaryProvider} (2nd AI Model Fallback, after ${primaryProvider} failed)`,
             model: secondaryModel,
             isBackupModel: true,
             aiAttempt: 2,
-            model1Error: error1
+            model1Error: error1,
+            debug: debugObj
           };
         }
         throw new Error(`AI Model 2 (${secondaryProvider}) produced empty reply`);
       } catch (err2) {
         error2 = err2.response?.data?.error?.message || err2.message;
+        stage2Telemetry = err2.debugTelemetry || stage2Telemetry;
         console.warn(`[LLMService] ⚠️ AI Model 2 (${secondaryProvider}/${secondaryModel}) failed: ${error2}`);
+        debugStages.push({
+          stage: 2,
+          stageName: `Secondary AI Backup (${secondaryProvider})`,
+          provider: secondaryProvider,
+          model: secondaryModel,
+          success: false,
+          latencyMs: 0,
+          telemetry: stage2Telemetry,
+          error: error2
+        });
       }
     } else {
       error2 = 'No secondary AI model available';
+      debugStages.push({
+        stage: 2,
+        stageName: 'Secondary AI Backup',
+        provider: 'none',
+        model: 'none',
+        success: false,
+        latencyMs: 0,
+        telemetry: null,
+        error: error2
+      });
     }
 
     // ── STAGE 3: Both AI Models Failed -> Fallback Machine Learning Reply ───────
@@ -226,6 +364,30 @@ class LLMService {
     const fallbackResponse = await this.callSmartMock({ system, user, history, mode, extraContext, settings });
     const detailedSummary = `Both 2 AI Models Failed (Model 1 [${primaryProvider}]: ${error1} | Model 2: ${error2})`;
 
+    debugStages.push({
+      stage: 3,
+      stageName: 'Fallback Machine Learning Reply',
+      provider: 'Smart Fallback Engine',
+      model: 'fallback-machine-learning',
+      success: true,
+      latencyMs: 1,
+      telemetry: fallbackResponse.debug || null,
+      error: null
+    });
+
+    const debugObj = {
+      timestamp: new Date().toISOString(),
+      primaryProvider,
+      primaryModel,
+      success: false,
+      finalProvider: 'Smart Fallback Engine (Both AI Models Failed)',
+      finalModel: 'fallback-machine-learning',
+      totalLatencyMs: Date.now() - overallStart,
+      attempts: debugStages
+    };
+    this.lastDebugInfo = debugObj;
+    this.recordDebugHistory(debugObj);
+
     return {
       text: this.cleanOutput(fallbackResponse.text),
       provider: `Smart Fallback Engine (Both AI Models Failed)`,
@@ -234,12 +396,14 @@ class LLMService {
       error: detailedSummary,
       model1Error: error1,
       model2Error: error2,
-      aiAttempt: 3
+      aiAttempt: 3,
+      debug: debugObj
     };
   }
 
-  // 1. Ollama Integration (Supports OpenAI compatible endpoint and native /api/chat)
+  // 1. Ollama Integration (Supports OpenAI compatible endpoint and native /api/chat with full telemetry)
   async callOllama({ system, user, history, temperature, max_tokens, settings, extraContext = {} }) {
+    const startTime = Date.now();
     let endpoint = (settings.ollama_endpoint || 'http://127.0.0.1:11434').trim().replace(/\/$/, '');
     let model = settings.ollama_model || 'llama3.2:latest';
     
@@ -248,10 +412,26 @@ class LLMService {
     history.forEach(h => messages.push({ role: h.role || (h.direction === 'incoming' ? 'user' : 'assistant'), content: h.text || h.content }));
     messages.push({ role: 'user', content: user });
 
+    // AI Model Think Mode (Reasoning)
+    const isThinkMode = settings.model_think_mode === 'true';
+
     // Quick Answer Reply Optimization: minimum 20s (20000ms) timeout so models have time to infer
     const isQuickMode = (settings.response_speed_mode || 'quick') === 'quick' || extraContext.isQuickMode;
     const requestTimeout = Math.max(20000, isQuickMode ? 20000 : 60000);
-    const numPredict = isQuickMode ? Math.min(max_tokens || 80, 80) : (max_tokens || 150);
+    // Ensure sufficient token capacity for LFM and thinking models so answers are not cut off
+    const numPredict = isQuickMode ? Math.max(160, Math.min(max_tokens || 160, 300)) : (max_tokens || 400);
+
+    const debugTelemetry = {
+      provider: 'ollama',
+      model,
+      endpoint,
+      timestamp: new Date().toISOString(),
+      temperature,
+      numPredict,
+      thinkMode: isThinkMode,
+      requestTimeout,
+      subCalls: []
+    };
 
     // Function to query available installed models from Ollama /api/tags
     const getInstalledModels = async () => {
@@ -270,6 +450,8 @@ class LLMService {
       let text = raw.trim();
       text = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
       text = text.replace(/<thought>[\s\S]*?<\/thought>/gi, '').trim();
+      text = text.replace(/<think>[\s\S]*$/gi, '').trim();
+      text = text.replace(/<thought>[\s\S]*$/gi, '').trim();
       return text;
     };
 
@@ -277,36 +459,127 @@ class LLMService {
     const tryNativeChatEndpoint = async (targetModel) => {
       const baseEp = endpoint.replace(/\/v1$/, '');
       const targetUrl = `${baseEp}/api/chat`;
-      const res = await axios.post(targetUrl, {
+      const reqPayload = {
         model: targetModel,
         messages,
         stream: false,
+        think: isThinkMode,
         options: {
           temperature,
-          num_predict: numPredict
+          num_predict: numPredict,
+          think: isThinkMode
         }
-      }, { timeout: requestTimeout });
+      };
 
-      const msg = res.data?.message;
-      let content = cleanOutput(msg?.content || '');
-      return content.trim();
+      const callRecord = {
+        endpointType: 'native_api_chat',
+        url: targetUrl,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        requestPayload: reqPayload,
+        startTime: Date.now()
+      };
+
+      try {
+        const res = await axios.post(targetUrl, reqPayload, {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: requestTimeout
+        });
+
+        callRecord.latencyMs = Date.now() - callRecord.startTime;
+        callRecord.status = res.status;
+        callRecord.statusText = res.statusText || 'OK';
+        callRecord.responseHeaders = res.headers;
+        callRecord.rawResponse = res.data;
+
+        const msg = res.data?.message;
+        const rawContent = msg?.content || '';
+        callRecord.rawContent = rawContent;
+
+        let content = cleanOutput(rawContent);
+        if (!content && rawContent && rawContent.trim()) {
+          // LFM / reasoning model recovery: if text was inside <think>, extract it so reply is not lost
+          content = rawContent.replace(/<\/?think>/gi, '').replace(/<\/?thought>/gi, '').trim();
+          callRecord.warning = 'Thinking tags were present and recovered as output text.';
+        }
+
+        callRecord.cleanedContent = content;
+        callRecord.success = !!content;
+        debugTelemetry.subCalls.push(callRecord);
+        return content.trim();
+      } catch (err) {
+        callRecord.latencyMs = Date.now() - callRecord.startTime;
+        callRecord.status = err.response?.status || 'ERROR';
+        callRecord.statusText = err.response?.statusText || err.code || 'Request Failed';
+        callRecord.rawResponse = err.response?.data || null;
+        callRecord.error = err.response?.data?.error || err.message;
+        callRecord.success = false;
+        debugTelemetry.subCalls.push(callRecord);
+        throw err;
+      }
     };
 
     // Helper to attempt inference via OpenAI-compatible endpoint (Fallback)
     const tryOpenAIEndpoint = async (targetModel) => {
       const baseEp = endpoint.replace(/\/v1$/, '');
       const targetUrl = `${baseEp}/v1/chat/completions`;
-      const res = await axios.post(targetUrl, {
+      const reqPayload = {
         model: targetModel,
         messages,
         temperature,
         max_tokens: numPredict,
-        stream: false
-      }, { timeout: requestTimeout });
+        stream: false,
+        think: isThinkMode,
+        options: {
+          think: isThinkMode
+        }
+      };
 
-      const choiceMsg = res.data?.choices?.[0]?.message;
-      let content = cleanOutput(choiceMsg?.content || '');
-      return content.trim();
+      const callRecord = {
+        endpointType: 'openai_compatible_v1',
+        url: targetUrl,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        requestPayload: reqPayload,
+        startTime: Date.now()
+      };
+
+      try {
+        const res = await axios.post(targetUrl, reqPayload, {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: requestTimeout
+        });
+
+        callRecord.latencyMs = Date.now() - callRecord.startTime;
+        callRecord.status = res.status;
+        callRecord.statusText = res.statusText || 'OK';
+        callRecord.responseHeaders = res.headers;
+        callRecord.rawResponse = res.data;
+
+        const choiceMsg = res.data?.choices?.[0]?.message;
+        const rawContent = choiceMsg?.content || '';
+        callRecord.rawContent = rawContent;
+
+        let content = cleanOutput(rawContent);
+        if (!content && rawContent && rawContent.trim()) {
+          content = rawContent.replace(/<\/?think>/gi, '').replace(/<\/?thought>/gi, '').trim();
+          callRecord.warning = 'Thinking tags were present and recovered as output text.';
+        }
+
+        callRecord.cleanedContent = content;
+        callRecord.success = !!content;
+        debugTelemetry.subCalls.push(callRecord);
+        return content.trim();
+      } catch (err) {
+        callRecord.latencyMs = Date.now() - callRecord.startTime;
+        callRecord.status = err.response?.status || 'ERROR';
+        callRecord.statusText = err.response?.statusText || err.code || 'Request Failed';
+        callRecord.rawResponse = err.response?.data || null;
+        callRecord.error = err.response?.data?.error || err.message;
+        callRecord.success = false;
+        debugTelemetry.subCalls.push(callRecord);
+        throw err;
+      }
     };
 
     try {
@@ -328,7 +601,11 @@ class LLMService {
         throw new Error('Ollama model produced empty response');
       }
 
-      return { text: reply, provider: 'Ollama', model };
+      debugTelemetry.latencyMs = Date.now() - startTime;
+      debugTelemetry.finalReply = reply;
+      debugTelemetry.success = true;
+
+      return { text: reply, provider: 'Ollama', model, debug: debugTelemetry };
     } catch (err) {
       const is404 = err.response && (err.response.status === 404 || (err.response.data && JSON.stringify(err.response.data).includes('not found')));
 
@@ -353,11 +630,20 @@ class LLMService {
           }
 
           if (reply) {
-            return { text: reply, provider: 'Ollama', model: fallbackModel };
+            debugTelemetry.latencyMs = Date.now() - startTime;
+            debugTelemetry.model = fallbackModel;
+            debugTelemetry.finalReply = reply;
+            debugTelemetry.success = true;
+            return { text: reply, provider: 'Ollama', model: fallbackModel, debug: debugTelemetry };
           }
         }
       }
 
+      debugTelemetry.latencyMs = Date.now() - startTime;
+      debugTelemetry.error = err.response?.data || err.message;
+      debugTelemetry.success = false;
+
+      err.debugTelemetry = debugTelemetry;
       throw err;
     }
   }
@@ -488,6 +774,7 @@ class LLMService {
 
     // Allocate sufficient tokens for thinking models (Gemini 2.5/3.x models spend tokens on reasoning)
     const effectiveMaxTokens = Math.max(max_tokens || 1000, 1000);
+    const isThinkMode = settings.model_think_mode === 'true';
 
     const payload = {
       contents: sanitizedContents,
@@ -496,6 +783,10 @@ class LLMService {
         maxOutputTokens: effectiveMaxTokens
       }
     };
+
+    if (!isThinkMode) {
+      payload.generationConfig.thinkingConfig = { thinkingBudget: 0 };
+    }
 
     // system_instruction is supported in Gemini v1beta REST API
     if (system && system.trim()) {
@@ -1150,6 +1441,30 @@ class LLMService {
       const latency = Date.now() - startTime;
       const cleanReply = this.cleanOutput(res.text);
 
+      const testDebug = {
+        timestamp: new Date().toISOString(),
+        isLiveTest: true,
+        primaryProvider: activeProvider,
+        primaryModel: model,
+        success: true,
+        finalProvider: res.provider || activeProvider,
+        finalModel: res.model || model,
+        totalLatencyMs: latency,
+        telemetry: res.debug || null,
+        attempts: [{
+          stage: 1,
+          stageName: `Live Test: ${res.provider || activeProvider}`,
+          provider: res.provider || activeProvider,
+          model: res.model || model,
+          success: true,
+          latencyMs: latency,
+          telemetry: res.debug || null,
+          error: null
+        }]
+      };
+      this.lastDebugInfo = testDebug;
+      this.recordDebugHistory(testDebug);
+
       return {
         success: true,
         isFallback: false,
@@ -1157,11 +1472,36 @@ class LLMService {
         model: res.model || model,
         latency,
         reply: cleanReply,
-        message: `✓ Confirmed! ${res.provider || activeProvider} (${res.model || model}) is active and replying (${latency}ms). Reply: "${cleanReply.substring(0, 80)}"`
+        message: `✓ Confirmed! ${res.provider || activeProvider} (${res.model || model}) is active and replying (${latency}ms). Reply: "${cleanReply.substring(0, 80)}"`,
+        debug: testDebug
       };
     } catch (err) {
       const latency = Date.now() - startTime;
       const detailedError = err.response?.data?.error?.message || err.message;
+      const failDebug = {
+        timestamp: new Date().toISOString(),
+        isLiveTest: true,
+        primaryProvider: activeProvider,
+        primaryModel: model,
+        success: false,
+        finalProvider: activeProvider,
+        finalModel: model,
+        totalLatencyMs: latency,
+        telemetry: err.debugTelemetry || null,
+        attempts: [{
+          stage: 1,
+          stageName: `Live Test: ${activeProvider}`,
+          provider: activeProvider,
+          model: model,
+          success: false,
+          latencyMs: latency,
+          telemetry: err.debugTelemetry || null,
+          error: detailedError
+        }]
+      };
+      this.lastDebugInfo = failDebug;
+      this.recordDebugHistory(failDebug);
+
       return {
         success: false,
         isFallback: true,
@@ -1169,7 +1509,8 @@ class LLMService {
         model,
         latency,
         error: detailedError,
-        message: `AI Model test failed for ${activeProvider} (${model}): ${detailedError}`
+        message: `AI Model test failed for ${activeProvider} (${model}): ${detailedError}`,
+        debug: failDebug
       };
     }
   }

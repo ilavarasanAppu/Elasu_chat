@@ -137,6 +137,20 @@ class RAGService {
   }
 
   /**
+   * Build ultra-compact Minimal Professional System Prompt (~40 tokens)
+   */
+  buildMinimalProfessionalPrompt({ retrievedDocs = [], chatHistory = [], userQuestion = '' }) {
+    let docsSummary = 'Standard corporate policies.';
+    if (retrievedDocs && retrievedDocs.length > 0) {
+      docsSummary = retrievedDocs.map(d => `[${d.doc_title}]: ${d.content.substring(0, 160)}`).join('\n');
+    }
+    return `You are GhostReply Professional Support.
+Knowledge Docs:
+${docsSummary}
+Answer the user's question directly, courteously, and concisely in 1-2 professional sentences using the knowledge base. No meta commentary. Output only the reply.`;
+  }
+
+  /**
    * Build Professional Mode System Prompt
    */
   buildProfessionalPrompt({ retrievedDocs = [], chatHistory = [], userQuestion = '' }) {

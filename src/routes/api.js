@@ -78,7 +78,8 @@ router.post('/webhook/trigger', async (req, res) => {
       contactId: cid,
       text,
       senderName: senderName || 'Webhook User',
-      platform: platform || 'webhook'
+      platform: platform || 'webhook',
+      dispatchToApi: true
     });
 
     res.json({
@@ -160,6 +161,45 @@ router.post('/provider/models', async (req, res) => {
     res.json(result);
   } catch (err) {
     res.status(500).json({ success: false, message: err.message, models: [] });
+  }
+});
+
+// --- Debug Telemetry Endpoints ---
+router.get('/debug/latest', (req, res) => {
+  try {
+    const debug = llmService.getLastDebugInfo();
+    res.json({
+      success: true,
+      debug: debug || null,
+      message: debug ? 'Latest debug trace retrieved' : 'No debug trace recorded yet'
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.get('/debug/message/:messageId', async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const msg = await getAsync(`SELECT id, direction, sender_name, text, mode, metadata, timestamp FROM messages WHERE id = ?`, [messageId]);
+    if (!msg) {
+      return res.status(404).json({ success: false, message: 'Message not found' });
+    }
+    let metadata = {};
+    if (msg.metadata) {
+      try {
+        metadata = typeof msg.metadata === 'string' ? JSON.parse(msg.metadata) : msg.metadata;
+      } catch (e) {}
+    }
+    res.json({
+      success: true,
+      messageId: msg.id,
+      text: msg.text,
+      metadata,
+      debug: metadata.debug || null
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
@@ -533,21 +573,24 @@ router.post('/rag/test-query', async (req, res) => {
 // --- 7. Live Chat Simulation Pipeline (STUDIO ONLY - NEVER SENDS TO EXTERNAL APIS) ---
 router.post('/chat/simulate', async (req, res) => {
   try {
-    const { contactId, text, senderName } = req.body;
+    const { contactId, text, senderName, dispatchToApi } = req.body;
     if (!contactId || !text) {
       return res.status(400).json({ success: false, message: 'contactId and text are required.' });
     }
 
-    // SIMULATION ONLY: This route strictly simulates incoming conversation in the studio
-    // and NEVER dispatches to external Telegram or WhatsApp APIs.
+    const contact = await getAsync(`SELECT * FROM contacts WHERE id = ?`, [contactId]);
+    const isRealPlatformContact = contact && (contact.platform === 'telegram' || contact.platform === 'whatsapp' || contact.platform === 'signal' || contact.id.startsWith('tg_') || contact.id.startsWith('wa_'));
+    const shouldDispatch = dispatchToApi !== undefined ? Boolean(dispatchToApi) : Boolean(isRealPlatformContact);
+
     const result = await decisionEngine.processIncomingMessage({
       contactId,
       text,
       senderName,
-      platform: 'simulator'
+      platform: contact?.platform || 'simulator',
+      dispatchToApi: shouldDispatch
     });
 
-    res.json({ success: true, simulatedOnly: true, result });
+    res.json({ success: true, simulatedOnly: !shouldDispatch, dispatched: Boolean(result?.dispatched), result });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

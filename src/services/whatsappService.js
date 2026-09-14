@@ -265,8 +265,8 @@ class WhatsAppService {
           });
         }
 
-        // Send auto-reply back through WhatsApp socket if reply exists
-        if (reply && reply.text) {
+        // Send auto-reply back through WhatsApp socket if reply exists and wasn't already dispatched
+        if (reply && reply.text && !reply.dispatched) {
           try {
             await sock.sendMessage(remoteJid, { text: reply.text });
             console.log(`[WhatsAppService] Sent WhatsApp auto-reply to +${cleanNumber}: "${reply.text.substring(0, 40)}..."`);
@@ -440,6 +440,25 @@ class WhatsAppService {
       status: this.status,
       sessionInfo: this.sessionInfo
     };
+  }
+
+  /**
+   * Send outbound message via active WhatsApp socket
+   */
+  async sendMessage(targetPhone, text) {
+    if (!targetPhone) throw new Error('Phone number is required');
+    if (!text) throw new Error('Message text cannot be empty');
+
+    const cleanNumber = String(targetPhone).replace(/[\s\-\(\)\+@s\.whatsapp\.net]/g, '');
+    const remoteJid = `${cleanNumber}@s.whatsapp.net`;
+
+    if (this.activeSocket && this.status === 'connected') {
+      const result = await this.activeSocket.sendMessage(remoteJid, { text });
+      console.log(`[WhatsAppService] Outbound message delivered to +${cleanNumber}`);
+      return { success: true, messageId: result?.key?.id, remoteJid };
+    } else {
+      throw new Error(`WhatsApp is not connected (current status: ${this.status})`);
+    }
   }
 
   /**

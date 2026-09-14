@@ -214,8 +214,8 @@ class TelegramService {
       });
     }
 
-    // Send auto-reply back to Telegram chat if autoReply is enabled
-    if (botEntry.autoReply !== false && reply && reply.text) {
+    // Send auto-reply back to Telegram chat if autoReply is enabled and wasn't already dispatched
+    if (botEntry.autoReply !== false && reply && reply.text && !reply.dispatched) {
       try {
         await this.sendMessage(chat.id, reply.text, botEntry.accountId);
         console.log(`[TelegramService] Sent auto-reply to ${chat.id}: "${reply.text.substring(0, 50)}..."`);

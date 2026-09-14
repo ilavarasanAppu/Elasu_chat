@@ -192,6 +192,25 @@ async function initDatabase() {
 
   // Seed default settings if empty
   await seedDefaultSettings();
+  // Migrate legacy placeholder name if present
+  try {
+    await runAsync(`UPDATE settings SET value = 'Elavarasan P' WHERE key = 'user_name' AND value = 'Alex Mercer'`);
+    await runAsync(`UPDATE settings SET value = 'Dual-Mode AI Operator' WHERE key = 'user_persona_title' AND value = 'Tech Lead & Founder'`);
+    const avatarRow = await getAsync(`SELECT key FROM settings WHERE key = 'user_avatar_initials'`);
+    if (!avatarRow) {
+      await runAsync(`INSERT INTO settings (key, value) VALUES ('user_avatar_initials', 'EP')`);
+    }
+    const thinkRow = await getAsync(`SELECT key FROM settings WHERE key = 'model_think_mode'`);
+    if (!thinkRow) {
+      await runAsync(`INSERT INTO settings (key, value) VALUES ('model_think_mode', 'false')`);
+    }
+    const minPromptRow = await getAsync(`SELECT key FROM settings WHERE key = 'minimal_system_prompt'`);
+    if (!minPromptRow) {
+      await runAsync(`INSERT INTO settings (key, value) VALUES ('minimal_system_prompt', 'false')`);
+    }
+  } catch (e) {
+    // Migration error ignored
+  }
   // Seed sample contacts and knowledge docs
   await seedInitialData();
   // Seed initial connected accounts if empty
@@ -201,8 +220,9 @@ async function initDatabase() {
 async function seedDefaultSettings() {
   const defaultSettings = [
     ['active_provider', 'ollama'],
-    ['user_name', 'Alex Mercer'],
-    ['user_persona_title', 'Tech Lead & Founder'],
+    ['user_name', 'Elavarasan P'],
+    ['user_persona_title', 'Dual-Mode AI Operator'],
+    ['user_avatar_initials', 'EP'],
     
     // Ollama settings
     ['ollama_endpoint', 'http://127.0.0.1:11434'],
@@ -235,12 +255,27 @@ async function seedDefaultSettings() {
     ['safety_escalation_enabled', 'true'],
     ['natural_delay_multiplier', '1.0'],
 
+    // Custom System Prompt Controls
+    ['custom_system_prompt_enabled', 'false'],
+    ['custom_system_prompt_personal', ''],
+    ['custom_system_prompt_professional', ''],
+    ['custom_system_prompt_extra', ''],
+
     // Language & Code-Switching (Default: Tanglish Tamil+English 98%)
     ['preferred_language', 'tanglish'], // 'tanglish', 'english', 'hinglish', 'tenglish', 'manglish', 'kanglish', 'tamil'
     ['code_switching_ratio', '98'], // 98% mix
 
     // Response Speed & Token Optimization
     ['response_speed_mode', 'quick'], // 'quick' (instant/fast sub-2s) or 'deep' (deliberate thinking)
+
+    // AI Model Think Mode (Reasoning / Chain-of-Thought)
+    ['model_think_mode', 'false'], // 'false' (disabled/suppress <think>) or 'true' (enabled)
+
+    // Minimal System Prompt Mode (Fast & compact ~40 tokens)
+    ['minimal_system_prompt', 'false'],
+
+    // Debug Mode Telemetry Switch
+    ['debug_mode', 'false'],
 
     // Voice Studio (ASR & TTS Voice Rhythm / Emotion)
     ['voice_pitch', '1.0'],

@@ -284,6 +284,38 @@ class PersonalityService {
   }
 
   /**
+   * Build an ultra-compact Minimal System Prompt (~35-45 tokens).
+   * Eliminates prompt eval latency and prevents token exhaustion on local/Ollama models.
+   */
+  buildMinimalPersonalPrompt({ userName = 'Alex', contactName = 'Friend', profile = {}, preferredLanguage = 'tanglish', codeSwitchingRatio = '98' }) {
+    const lang = (preferredLanguage || profile.primary_language || 'tanglish').toLowerCase();
+    
+    let langGuidance = '';
+    if (lang === 'tanglish') {
+      langGuidance = 'colloquial Tanglish (Tamil written in English alphabet mixed naturally with English)';
+    } else if (lang === 'hinglish' || lang === 'hi') {
+      langGuidance = 'conversational Hinglish (Hindi in English script + English)';
+    } else if (lang === 'tenglish' || lang === 'te') {
+      langGuidance = 'conversational Tenglish (Telugu in English script + English)';
+    } else if (lang === 'manglish' || lang === 'ml') {
+      langGuidance = 'conversational Manglish (Malayalam in English script + English)';
+    } else if (lang === 'kanglish' || lang === 'kn') {
+      langGuidance = 'conversational Kanglish (Kannada in English script + English)';
+    } else if (lang === 'tamil' || lang === 'ta') {
+      langGuidance = 'casual Tamil script (தமிழ்)';
+    } else {
+      langGuidance = 'casual modern English texting style';
+    }
+
+    const rel = profile.relationship_type || 'friend';
+
+    return `You are "${userName}" texting "${contactName}" (${rel}) on personal chat.
+Respond directly in natural ${langGuidance}.
+Keep it short (1-2 sentences maximum). Be friendly, casual, and authentic.
+Output ONLY the raw text message reply. No reasoning, no thinking tags, no quotes, no explanations.`;
+  }
+
+  /**
    * Build Personal Mode System Prompt with Tanglish & Multi-Language Support
    */
   buildPersonalPrompt({ userName = 'Alex', contactName = 'Friend', profile = {}, preferredLanguage = 'tanglish', codeSwitchingRatio = '98' }) {

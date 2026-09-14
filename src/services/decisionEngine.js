@@ -33,9 +33,22 @@ class DecisionEngine {
   }
 
   /**
+   * Format a custom system prompt template by interpolating dynamic variables
+   */
+  formatCustomPrompt(template, vars = {}) {
+    if (!template) return '';
+    let result = template;
+    for (const [key, val] of Object.entries(vars)) {
+      const regex = new RegExp(`\\{${key}\\}`, 'gi');
+      result = result.replace(regex, val !== undefined && val !== null ? String(val) : '');
+    }
+    return result;
+  }
+
+  /**
    * Main Real-time Processing Pipeline
    */
-  async processIncomingMessage({ contactId, text, platform = 'simulator', senderName, initialMode }) {
+  async processIncomingMessage({ contactId, text, platform = 'simulator', senderName, initialMode, chatId = null, accountId = null, dispatchToApi = true }) {
     const startTime = Date.now();
     const messageId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
@@ -170,36 +183,99 @@ class DecisionEngine {
       timestamp: h.timestamp
     }));
 
+    const isCustomPromptEnabled = settings.custom_system_prompt_enabled === 'true';
+
     if (mode === 'professional') {
       // Professional Mode RAG Query
       retrievedDocs = await ragService.queryKnowledgeBase(text, 3);
-      systemPrompt = ragService.buildProfessionalPrompt({
-        retrievedDocs,
-        chatHistory: recentHistory,
-        userQuestion: text
-      });
+      
+      const docsContext = (retrievedDocs && retrievedDocs.length > 0)
+        ? retrievedDocs.map((doc, idx) => `[Source ${idx + 1} - ${doc.doc_title} (${doc.category})]:\n${doc.content}`).join('\n\n')
+        : 'No specific documentation found for this query.';
+      
+      const historyFormatted = (recentHistory && recentHistory.length > 0)
+        ? recentHistory.slice(-10).map(h => `${h.sender_name || (h.role === 'user' ? 'Customer' : 'Representative')}: ${h.text || h.content}`).join('\n')
+        : 'No previous history.';
+
+      if (isCustomPromptEnabled && settings.custom_system_prompt_professional && settings.custom_system_prompt_professional.trim()) {
+        systemPrompt = this.formatCustomPrompt(settings.custom_system_prompt_professional, {
+          knowledge_base: docsContext,
+          chat_history: historyFormatted,
+          user_question: text,
+          userName: settings.user_name || 'Elavarasan P',
+          contactName: contact.name
+        });
+      } else if (settings.minimal_system_prompt === 'true') {
+        systemPrompt = ragService.buildMinimalProfessionalPrompt({
+          retrievedDocs,
+          chatHistory: recentHistory,
+          userQuestion: text
+        });
+      } else {
+        systemPrompt = ragService.buildProfessionalPrompt({
+          retrievedDocs,
+          chatHistory: recentHistory,
+          userQuestion: text
+        });
+      }
       temperature = 0.3; // Low temperature for high factual accuracy
       max_tokens = 800;
+
+      if (settings.custom_system_prompt_extra && settings.custom_system_prompt_extra.trim()) {
+        systemPrompt += `\n\n═══════════════════════════════════════════════════════════════════\nGLOBAL USER DIRECTIVES & INSTRUCTIONS\n═══════════════════════════════════════════════════════════════════\n${settings.custom_system_prompt_extra.trim()}`;
+      }
 
       this.broadcast('reasoning_trace', {
         contactId: contact.id,
         mode: 'professional',
         retrievedDocsCount: retrievedDocs.length,
         retrievedDocs: retrievedDocs.map(d => ({ title: d.doc_title, category: d.category, score: d.score })),
-        systemPromptSnippet: systemPrompt.substring(0, 200) + '...'
+        systemPromptSnippet: systemPrompt.substring(0, 200) + '...',
+        isCustomPrompt: isCustomPromptEnabled && Boolean(settings.custom_system_prompt_professional && settings.custom_system_prompt_professional.trim())
       });
     } else {
       // Personal Mode Persona Mirroring
       const preferredLanguage = settings.preferred_language || 'tanglish';
       profile.preferred_language = preferredLanguage;
+      const effectiveUserName = settings.user_name || 'Elavarasan P';
 
-      systemPrompt = personalityService.buildPersonalPrompt({
-        userName: settings.user_name || 'Alex Mercer',
-        contactName: contact.name,
-        profile,
-        preferredLanguage,
-        codeSwitchingRatio: settings.code_switching_ratio || '98'
-      });
+      if (isCustomPromptEnabled && settings.custom_system_prompt_personal && settings.custom_system_prompt_personal.trim()) {
+        const historyFormatted = (recentHistory && recentHistory.length > 0)
+          ? recentHistory.slice(-10).map(h => `${h.sender_name || (h.role === 'user' ? contact.name : effectiveUserName)}: ${h.text || h.content}`).join('\n')
+          : 'No previous history.';
+
+        systemPrompt = this.formatCustomPrompt(settings.custom_system_prompt_personal, {
+          userName: effectiveUserName,
+          contactName: contact.name,
+          language: preferredLanguage,
+          codeSwitchingRatio: settings.code_switching_ratio || '98',
+          relationship: contact.relationship_type || 'friend',
+          formality: profile.formality_level || '0.2',
+          humor: profile.humor_type || 'playful banter',
+          chat_history: historyFormatted,
+          user_question: text
+        });
+      } else if (settings.minimal_system_prompt === 'true') {
+        systemPrompt = personalityService.buildMinimalPersonalPrompt({
+          userName: effectiveUserName,
+          contactName: contact.name,
+          profile,
+          preferredLanguage,
+          codeSwitchingRatio: settings.code_switching_ratio || '98'
+        });
+      } else {
+        systemPrompt = personalityService.buildPersonalPrompt({
+          userName: effectiveUserName,
+          contactName: contact.name,
+          profile,
+          preferredLanguage,
+          codeSwitchingRatio: settings.code_switching_ratio || '98'
+        });
+      }
+
+      if (settings.custom_system_prompt_extra && settings.custom_system_prompt_extra.trim()) {
+        systemPrompt += `\n\n═══════════════════════════════════════════════════════════════════\nGLOBAL USER DIRECTIVES & INSTRUCTIONS\n═══════════════════════════════════════════════════════════════════\n${settings.custom_system_prompt_extra.trim()}`;
+      }
 
       // Quick Answer Reply Optimization
       const isQuickMode = (settings.response_speed_mode || 'quick') === 'quick';
@@ -214,7 +290,8 @@ class DecisionEngine {
         relationship: contact.relationship_type,
         language: preferredLanguage,
         speedMode: isQuickMode ? 'quick' : 'deep',
-        systemPromptSnippet: systemPrompt.substring(0, 200) + '...'
+        systemPromptSnippet: systemPrompt.substring(0, 200) + '...',
+        isCustomPrompt: isCustomPromptEnabled && Boolean(settings.custom_system_prompt_personal && settings.custom_system_prompt_personal.trim())
       });
     }
 
@@ -286,7 +363,8 @@ class DecisionEngine {
       aiAttempt: llmResult.aiAttempt || 1,
       error: llmResult.error || null,
       model1Error: llmResult.model1Error || null,
-      model2Error: llmResult.model2Error || null
+      model2Error: llmResult.model2Error || null,
+      debug: llmResult.debug || null
     });
 
     await runAsync(
@@ -314,6 +392,7 @@ class DecisionEngine {
       error: llmResult.error || null,
       model1Error: llmResult.model1Error || null,
       model2Error: llmResult.model2Error || null,
+      debug: llmResult.debug || null,
       processingTimeMs: Date.now() - startTime,
       delaySimulatedMs: delayMs,
       timestamp: new Date().toISOString()
@@ -331,10 +410,102 @@ class DecisionEngine {
       });
     }
 
+    // 10. Automatically Dispatch AI Reply Over Platform API (Telegram, WhatsApp, Signal)
+    let apiDispatch = { attempted: false, success: false, error: null };
+    if (dispatchToApi !== false) {
+      apiDispatch = await this.dispatchPlatformAutoReply(contact, finalReply, { platform, chatId, accountId });
+    }
+
+    resultPayload.dispatched = Boolean(apiDispatch.success);
+    resultPayload.apiDispatch = apiDispatch;
+
     // Broadcast message sent
     this.broadcast('message_sent', resultPayload);
 
     return resultPayload;
+  }
+
+  /**
+   * Centralized platform outbound dispatcher: delivers AI replies over Telegram, WhatsApp, Signal APIs
+   */
+  async dispatchPlatformAutoReply(contact, replyText, options = {}) {
+    if (!replyText || !contact) return { attempted: false, success: false };
+
+    const platform = (options.platform || contact.platform || '').toLowerCase();
+    const contactId = String(contact.id || '');
+    const handle = String(contact.handle || '');
+
+    // 1. Telegram Dispatch
+    const isTelegram = platform === 'telegram' || contactId.startsWith('tg_') || handle.startsWith('tg_') || Boolean(options.chatId);
+    if (isTelegram) {
+      let tgChatId = null;
+      if (options.chatId) {
+        tgChatId = String(options.chatId);
+      } else if (contactId.startsWith('tg_')) {
+        tgChatId = contactId.replace(/^tg_/, '');
+      } else if (handle.startsWith('tg_')) {
+        tgChatId = handle.replace(/^tg_/, '');
+      } else if (/^\d+$/.test(handle.trim())) {
+        tgChatId = handle.trim();
+      }
+
+      if (tgChatId) {
+        try {
+          const telegramService = require('./telegramService');
+          const tgResult = await telegramService.sendMessage(tgChatId, replyText, options.accountId);
+          console.log(`[DecisionEngine -> Telegram API] AI auto-reply delivered to chat ${tgChatId} (msg_id: ${tgResult?.messageId})`);
+          return { attempted: true, success: true, platform: 'telegram', result: tgResult };
+        } catch (tgErr) {
+          console.error(`[DecisionEngine -> Telegram Error] Chat ${tgChatId}:`, tgErr.message);
+          return { attempted: true, success: false, platform: 'telegram', error: tgErr.message };
+        }
+      }
+    }
+
+    // 2. WhatsApp Dispatch
+    const isWhatsApp = platform === 'whatsapp' || contactId.startsWith('wa_') || handle.startsWith('wa_') || /^\+?\d{8,15}$/.test(handle.replace(/[\s\-\(\)]/g, ''));
+    if (isWhatsApp) {
+      let waNumber = null;
+      if (options.remoteJid) {
+        waNumber = options.remoteJid.replace(/@.+/, '');
+      } else if (contactId.startsWith('wa_')) {
+        waNumber = contactId.replace(/^wa_/, '');
+      } else if (handle.startsWith('wa_')) {
+        waNumber = handle.replace(/^wa_/, '');
+      } else if (/^\+?\d+$/.test(handle.replace(/[\s\-\(\)]/g, ''))) {
+        waNumber = handle.replace(/[\s\-\(\)\+]/g, '');
+      }
+
+      if (waNumber) {
+        try {
+          const whatsappService = require('./whatsappService');
+          const waResult = await whatsappService.sendMessage(waNumber, replyText);
+          console.log(`[DecisionEngine -> WhatsApp API] AI auto-reply delivered to +${waNumber}`);
+          return { attempted: true, success: true, platform: 'whatsapp', result: waResult };
+        } catch (waErr) {
+          console.warn(`[DecisionEngine -> WhatsApp Notice] Could not deliver to +${waNumber}:`, waErr.message);
+          return { attempted: true, success: false, platform: 'whatsapp', error: waErr.message };
+        }
+      }
+    }
+
+    // 3. Signal Dispatch
+    const isSignal = platform === 'signal' || contactId.startsWith('signal_');
+    if (isSignal) {
+      try {
+        const signalService = require('./signalService');
+        if (typeof signalService.sendMessage === 'function') {
+          const sigTarget = contact.handle || contactId.replace(/^signal_/, '');
+          const sigResult = await signalService.sendMessage(sigTarget, replyText);
+          return { attempted: true, success: true, platform: 'signal', result: sigResult };
+        }
+      } catch (sigErr) {
+        console.warn(`[DecisionEngine -> Signal Notice] Error:`, sigErr.message);
+        return { attempted: true, success: false, platform: 'signal', error: sigErr.message };
+      }
+    }
+
+    return { attempted: false, success: false };
   }
 }
 

@@ -82,6 +82,24 @@
             <i data-lucide="zap"></i>
             <span id="speedModeLabel">⚡ Quick</span>
           </button>
+
+          <button class="header-btn-think" id="headerThinkModeBtn" title="Toggle AI Model Think Mode: Turn ON for chain-of-thought reasoning (<think>) or OFF to suppress internal thinking for fast direct responses" type="button">
+            <i data-lucide="brain"></i>
+            <span id="thinkModeLabel">🧠 Think: OFF</span>
+          </button>
+
+          <button class="header-btn-debug" id="headerDebugModeBtn" title="Toggle Debug Mode: View exact details sent to model and raw response received in a copyable popup" type="button">
+            <i data-lucide="bug"></i>
+            <span id="debugModeLabel">🐞 Debug: OFF</span>
+          </button>
+          <button class="header-btn-refresh header-btn-inspect-debug hidden" id="headerInspectDebugBtn" title="Open Latest Model Request/Response Debug Popup" type="button">
+            <i data-lucide="terminal"></i>
+          </button>
+
+          <button class="header-btn-prompt" id="headerSystemPromptBtn" title="Edit and customize System Prompts for Personal and Professional modes" type="button">
+            <i data-lucide="file-edit"></i>
+            <span>✏️ Prompt</span>
+          </button>
         </div>
         <!-- Hidden elements for legacy script compatibility -->
         <span id="currentProviderName" style="display:none;">Smart Fallback</span>
@@ -157,12 +175,15 @@
         </nav>
 
         <div class="sidebar-footer">
-          <div class="user-card">
-            <div class="user-avatar">AM</div>
+          <div class="user-card" id="sidebarUserCard" title="Click to edit profile & identity" tabindex="0" role="button">
+            <div class="user-avatar" id="sidebarUserAvatar">EP</div>
             <div class="user-info">
-              <span class="user-name" id="sidebarUserName">Alex Mercer</span>
-              <span class="user-role">Dual-Mode Represented</span>
+              <span class="user-name" id="sidebarUserName">Elavarasan P</span>
+              <span class="user-role" id="sidebarUserRole">Dual-Mode AI Operator</span>
             </div>
+            <button class="btn-user-edit" id="btnEditUserProfile" title="Edit Profile Details" type="button">
+              <i data-lucide="edit-3"></i>
+            </button>
           </div>
         </div>
       </aside>
@@ -458,12 +479,38 @@
 
                 <!-- Dynamic System Prompt Preview Drawer -->
                 <div class="brain-card">
-                  <div class="brain-card-header-toggle" id="togglePromptDrawer">
+                  <div class="brain-card-header-toggle" id="togglePromptDrawer" style="display:flex;justify-content:space-between;align-items:center;">
                     <div class="brain-card-title"><i data-lucide="code"></i> Dynamic Injected Prompt</div>
-                    <i data-lucide="chevron-down" id="chevronPrompt"></i>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                      <button class="btn btn-xs btn-outline" id="btnEditPromptFromInspector" title="Edit System Prompt" type="button" style="font-size:11px;padding:2px 8px;display:flex;align-items:center;gap:4px;">
+                        <i data-lucide="file-edit" style="width:12px;height:12px;"></i> Edit
+                      </button>
+                      <i data-lucide="chevron-down" id="chevronPrompt"></i>
+                    </div>
                   </div>
                   <div class="code-preview-box" id="promptCodePreview">
                     <pre><code id="inspectorPromptText">// Dynamic system prompt will appear here on next message...</code></pre>
+                  </div>
+                </div>
+
+                <!-- LLM Debug Telemetry Card -->
+                <div class="brain-card" id="inspectorDebugCard">
+                  <div class="brain-card-header-toggle" style="display:flex;justify-content:space-between;align-items:center;">
+                    <div class="brain-card-title"><i data-lucide="bug"></i> LLM Debug Telemetry</div>
+                    <span class="badge" id="badgeDebugStatus" style="font-size:10px;">Debug OFF</span>
+                  </div>
+                  <div class="brain-debug-info" style="margin-top:8px;font-size:12px;color:var(--text-secondary);">
+                    <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                      <span>Last Model Target:</span>
+                      <strong id="debugTargetModel" style="color:var(--text-primary);font-size:12px;">-</strong>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                      <span>Endpoint URL:</span>
+                      <span id="debugEndpointUrl" style="font-family:monospace;font-size:11px;color:var(--accent-cyan);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">-</span>
+                    </div>
+                    <button class="btn btn-sm btn-outline" id="btnOpenDebugFromInspector" type="button" style="width:100%;margin-top:6px;font-size:12px;display:flex;align-items:center;justify-content:center;gap:6px;">
+                      <i data-lucide="terminal"></i> Inspect Request & Response
+                    </button>
                   </div>
                 </div>
 
@@ -519,6 +566,35 @@
                   </div>
                   <input type="text" id="cfg_ollama_model_custom" class="model-custom-input" placeholder="Or type custom model name...">
                 </div>
+
+                <div class="form-group think-mode-setting-box" style="margin-top:10px; padding:10px 12px; background:rgba(255, 255, 255, 0.03); border:1px solid rgba(255, 255, 255, 0.08); border-radius:8px; display:flex; justify-content:space-between; align-items:center;">
+                  <div>
+                    <label for="cfg_model_think_mode" style="margin:0; font-size:12px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px;">
+                      <i data-lucide="brain" style="width:14px; height:14px; color:var(--accent-cyan);"></i>
+                      <span>AI Model Think Mode</span>
+                    </label>
+                    <span class="text-xs text-muted" style="display:block; font-size:11px; margin-top:2px;">OFF = suppress &lt;think&gt; reasoning for instant responses</span>
+                  </div>
+                  <label class="switch" style="margin-left:12px; flex-shrink:0;" title="Toggle Think Mode OFF/ON">
+                    <input type="checkbox" id="cfg_model_think_mode">
+                    <span class="slider round"></span>
+                  </label>
+                </div>
+
+                <div class="form-group minimal-prompt-setting-box" style="margin-top:10px; padding:10px 12px; background:rgba(255, 255, 255, 0.03); border:1px solid rgba(255, 255, 255, 0.08); border-radius:8px; display:flex; justify-content:space-between; align-items:center;">
+                  <div>
+                    <label for="cfg_minimal_system_prompt" style="margin:0; font-size:12px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px;">
+                      <i data-lucide="zap" style="width:14px; height:14px; color:var(--accent-amber);"></i>
+                      <span>Minimal System Prompt Mode</span>
+                    </label>
+                    <span class="text-xs text-muted" style="display:block; font-size:11px; margin-top:2px;">ON = ultra-compact ~40-token prompt; prevents model lag and empty replies</span>
+                  </div>
+                  <label class="switch" style="margin-left:12px; flex-shrink:0;" title="Toggle Minimal System Prompt OFF/ON">
+                    <input type="checkbox" id="cfg_minimal_system_prompt">
+                    <span class="slider round"></span>
+                  </label>
+                </div>
+
                 <div class="provider-status-msg" id="status_ollama"></div>
                 <button class="btn btn-sm btn-select-provider" data-select="ollama">Set as Active Provider</button>
               </div>
@@ -742,6 +818,33 @@
               </div>
             </div>
 
+            <!-- 8. System Prompt Customization & Control -->
+            <div class="provider-card glass-card full-width-provider-card" style="grid-column: 1 / -1; border-color: rgba(255, 170, 0, 0.35); background: linear-gradient(135deg, rgba(255, 170, 0, 0.04), rgba(0, 0, 0, 0.2));">
+              <div class="provider-card-header">
+                <div class="provider-icon-title">
+                  <div class="provider-logo-icon" style="background:rgba(255, 170, 0, 0.15); color:var(--accent-amber); font-size:18px;">📝</div>
+                  <div>
+                    <h4>System Prompt Customization Engine</h4>
+                    <span class="provider-desc">View, customize, and override core prompts for Personal & Professional modes</span>
+                  </div>
+                </div>
+                <button class="btn btn-sm btn-outline" id="btnOpenPromptEditorFromProviders" type="button" style="border-color:rgba(255,170,0,0.4); color:var(--accent-amber);">
+                  <i data-lucide="file-edit"></i> Open Prompt Editor
+                </button>
+              </div>
+
+              <div class="provider-form" style="padding-top:4px;">
+                <p class="text-muted text-sm" style="margin-bottom:12px;">Customize instructions, tone directives, Tanglish rules, and safety bounds passed to local (Ollama / LM Studio) or cloud models.</p>
+                <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+                  <button class="btn btn-sm btn-primary" id="btnQuickEditPrompts" type="button">
+                    <i data-lucide="sparkles"></i> Customize System Prompts
+                  </button>
+                  <span class="badge" id="providerPromptOverrideBadge" style="font-size:11px;">Default Generator Active</span>
+                  <span class="text-xs text-muted">Supports dynamic tags: <code>{userName}</code>, <code>{contactName}</code>, <code>{knowledge_base}</code></span>
+                </div>
+              </div>
+            </div>
+
           </div>
         </section>
 
@@ -776,7 +879,7 @@
                 </div>
                 <div class="form-group">
                   <label>Your Name in Chat (User)</label>
-                  <input type="text" id="personaUserName" value="Alex" placeholder="e.g. Alex">
+                  <input type="text" id="personaUserName" value="Elavarasan" placeholder="e.g. Elavarasan">
                 </div>
               </div>
 
@@ -1354,7 +1457,7 @@
             <h4>Step 4: Contact & Safety Configuration</h4>
             <div class="form-group">
               <label>Your Display Name</label>
-              <input type="text" id="wizUserName" value="Alex Mercer">
+              <input type="text" id="wizUserName" value="Elavarasan P">
             </div>
             <div class="form-group">
               <label>Default Typing Delay Style</label>
@@ -1493,6 +1596,149 @@
         <div class="modal-footer">
           <button class="btn btn-outline" id="btnCancelCustomModelModal">Cancel</button>
           <button class="btn btn-primary" id="btnApplyCustomModel"><i data-lucide="check"></i> Activate Model</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: LLM REQUEST & RESPONSE DEBUG INSPECTOR -->
+    <div class="modal-overlay hidden" id="debugModal">
+      <div class="modal-card glass-card debug-modal-card">
+        <div class="modal-header debug-modal-header">
+          <div class="debug-header-title-group">
+            <div class="debug-logo-badge">🐞</div>
+            <div>
+              <h3 id="debugModalTitle">LLM Request & Response Debugger</h3>
+              <p class="text-xs text-muted" id="debugModalSubtitle">Inspect exact raw payloads sent to and received from the AI model</p>
+            </div>
+          </div>
+          <div class="debug-header-actions">
+            <button class="btn btn-sm btn-outline debug-copy-all-btn" id="btnCopyAllDebug" title="Copy entire debug trace as formatted JSON">
+              <i data-lucide="copy"></i> <span>Copy All Data</span>
+            </button>
+            <button class="btn-close-modal" id="btnCloseDebugModal" title="Close Debugger (Esc)">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Sticky Meta Ribbon -->
+        <div class="debug-meta-ribbon">
+          <div class="debug-ribbon-item">
+            <span class="ribbon-label">Provider</span>
+            <span class="ribbon-val badge" id="debugProviderBadge">Ollama</span>
+          </div>
+          <div class="debug-ribbon-item">
+            <span class="ribbon-label">Model</span>
+            <strong class="ribbon-val" id="debugModelVal">lfm2.5:ela</strong>
+          </div>
+          <div class="debug-ribbon-item">
+            <span class="ribbon-label">Status</span>
+            <span class="ribbon-val status-pill green" id="debugStatusPill">200 OK</span>
+          </div>
+          <div class="debug-ribbon-item">
+            <span class="ribbon-label">Think Mode</span>
+            <span class="ribbon-val badge" id="debugThinkModeBadge">OFF</span>
+          </div>
+          <div class="debug-ribbon-item">
+            <span class="ribbon-label">Latency</span>
+            <span class="ribbon-val" id="debugLatencyVal">1,240 ms</span>
+          </div>
+          <div class="debug-ribbon-item debug-endpoint-item">
+            <span class="ribbon-label">Endpoint URL</span>
+            <span class="ribbon-val debug-endpoint-code" id="debugEndpointVal">http://127.0.0.1:11434/api/chat</span>
+          </div>
+        </div>
+
+        <!-- Copy Feedback Toast Notification -->
+        <div class="debug-copy-toast hidden" id="debugCopyToast">
+          <i data-lucide="check-circle-2"></i> Copied to clipboard!
+        </div>
+
+        <!-- Debug Sub-tabs -->
+        <div class="debug-tab-bar">
+          <button class="debug-tab-btn active" data-debug-tab="debug-tab-overview">Overview</button>
+          <button class="debug-tab-btn" data-debug-tab="debug-tab-request">1. Sent to Model (Request)</button>
+          <button class="debug-tab-btn" data-debug-tab="debug-tab-response">2. Received from Model (Response)</button>
+          <button class="debug-tab-btn" data-debug-tab="debug-tab-pipeline">3. Fallback Pipeline Trace</button>
+          <button class="debug-tab-btn" data-debug-tab="debug-tab-raw">4. Raw JSON Object</button>
+        </div>
+
+        <div class="modal-body debug-modal-body">
+          <!-- TAB 1: OVERVIEW & DIAGNOSIS -->
+          <div class="debug-tab-content active" id="debug-tab-overview">
+            <div class="debug-diagnosis-banner" id="debugDiagnosisBanner">
+              <div class="diagnosis-icon" id="diagnosisIcon"><i data-lucide="info"></i></div>
+              <div class="diagnosis-text">
+                <strong id="diagnosisTitle">Model Telemetry Status</strong>
+                <p id="diagnosisDesc">Details on why this response was produced.</p>
+              </div>
+            </div>
+
+            <div class="debug-grid-two">
+              <div class="debug-box">
+                <div class="debug-box-header">
+                  <span><i data-lucide="send"></i> Prompts Sent (System & User)</span>
+                  <button class="btn btn-xs btn-outline btn-copy-code" data-copy-target="debugPromptSentText" title="Copy Prompts"><i data-lucide="copy"></i> Copy</button>
+                </div>
+                <div class="debug-code-view copyable-text" id="debugPromptSentText">// Prompts sent...</div>
+              </div>
+
+              <div class="debug-box">
+                <div class="debug-box-header">
+                  <span><i data-lucide="message-square"></i> Final Content Extracted</span>
+                  <button class="btn btn-xs btn-outline btn-copy-code" data-copy-target="debugFinalReplyText" title="Copy Output"><i data-lucide="copy"></i> Copy</button>
+                </div>
+                <div class="debug-code-view copyable-text" id="debugFinalReplyText">// Output text...</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- TAB 2: SENT TO MODEL (REQUEST) -->
+          <div class="debug-tab-content hidden" id="debug-tab-request">
+            <div class="debug-box">
+              <div class="debug-box-header">
+                <span><i data-lucide="file-json"></i> Complete Request Payload (POST Body Sent to Model)</span>
+                <button class="btn btn-xs btn-outline btn-copy-code" data-copy-target="debugRequestJsonText"><i data-lucide="copy"></i> Copy Request JSON</button>
+              </div>
+              <pre class="debug-code-pre copyable-text"><code id="debugRequestJsonText">// Loading request JSON...</code></pre>
+            </div>
+          </div>
+
+          <!-- TAB 3: RECEIVED FROM MODEL (RESPONSE) -->
+          <div class="debug-tab-content hidden" id="debug-tab-response">
+            <div class="debug-box">
+              <div class="debug-box-header">
+                <span><i data-lucide="inbox"></i> Complete Raw API Response Body Received</span>
+                <button class="btn btn-xs btn-outline btn-copy-code" data-copy-target="debugResponseJsonText"><i data-lucide="copy"></i> Copy Response JSON</button>
+              </div>
+              <pre class="debug-code-pre copyable-text"><code id="debugResponseJsonText">// Loading response JSON...</code></pre>
+            </div>
+          </div>
+
+          <!-- TAB 4: FALLBACK PIPELINE TRACE -->
+          <div class="debug-tab-content hidden" id="debug-tab-pipeline">
+            <div class="debug-pipeline-timeline" id="debugPipelineTimeline">
+              <!-- Rendered via JS -->
+            </div>
+          </div>
+
+          <!-- TAB 5: RAW JSON OBJECT -->
+          <div class="debug-tab-content hidden" id="debug-tab-raw">
+            <div class="debug-box">
+              <div class="debug-box-header">
+                <span><i data-lucide="braces"></i> Complete Raw Debug Object</span>
+                <button class="btn btn-xs btn-outline btn-copy-code" data-copy-target="debugRawJsonText"><i data-lucide="copy"></i> Copy Full JSON</button>
+              </div>
+              <pre class="debug-code-pre copyable-text"><code id="debugRawJsonText">// Complete debug trace JSON...</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer debug-modal-footer">
+          <div class="text-xs text-muted" style="user-select:none;">
+            💡 <em>All text in this popup is fully selectable and copyable. Click any copy button to save to clipboard.</em>
+          </div>
+          <button class="btn btn-primary" id="btnCloseDebugModalBtn">Close</button>
         </div>
       </div>
     </div>
@@ -1798,6 +2044,138 @@
         <div class="modal-footer" style="padding:14px 20px; display:flex; justify-content:flex-end; gap:10px;">
           <button class="btn btn-outline" id="btnCancelRenameModal" type="button">Cancel</button>
           <button class="btn btn-primary" id="btnSaveRenameModal" type="button"><i data-lucide="check"></i> Save Changes</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: EDIT USER PROFILE & IDENTITY -->
+    <div class="modal-overlay hidden" id="userProfileModal">
+      <div class="modal-card glass-card user-profile-modal-card" style="max-width: 480px;">
+        <div class="modal-header">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div class="modal-icon-badge" style="background:rgba(0, 242, 254, 0.15); color:var(--accent-cyan); width:36px; height:36px; border-radius:10px; display:flex; align-items:center; justify-content:center;">
+              <i data-lucide="user" style="width:18px; height:18px;"></i>
+            </div>
+            <div>
+              <h3 style="font-size:16px; margin:0; font-weight:700;">Edit Profile & Identity</h3>
+              <span class="text-xs text-muted">Customize your display name, role, and avatar badge</span>
+            </div>
+          </div>
+          <button class="btn-close-modal" id="btnCloseProfileModal" type="button"><i data-lucide="x"></i></button>
+        </div>
+        <div class="modal-body" style="padding: 18px 20px;">
+          <!-- Live Preview Avatar -->
+          <div style="display:flex; align-items:center; gap:16px; margin-bottom:18px; padding:12px 14px; background:rgba(255,255,255,0.03); border-radius:12px; border:1px solid rgba(255,255,255,0.06);">
+            <div class="user-avatar" id="profPreviewAvatar" style="width:48px; height:48px; font-size:18px; font-weight:700;">EP</div>
+            <div>
+              <div style="font-weight:700; font-size:15px;" id="profPreviewName">Elavarasan P</div>
+              <div class="text-xs text-muted" id="profPreviewRole">Dual-Mode AI Operator</div>
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-bottom:14px;">
+            <label for="profEditName" style="font-size:12px; font-weight:600; margin-bottom:6px; display:block;">Display Name</label>
+            <input type="text" id="profEditName" class="form-input" value="Elavarasan P" placeholder="e.g. Elavarasan P" autocomplete="name">
+            <span class="text-xs text-muted" style="margin-top:4px; display:block;">Used across AI auto-replies, dynamic prompt tags, and simulator turns.</span>
+          </div>
+
+          <div class="form-group" style="margin-bottom:14px;">
+            <label for="profEditRole" style="font-size:12px; font-weight:600; margin-bottom:6px; display:block;">Persona / Role Subtitle</label>
+            <input type="text" id="profEditRole" class="form-input" value="Dual-Mode AI Operator" placeholder="e.g. Dual-Mode AI Operator">
+            <span class="text-xs text-muted" style="margin-top:4px; display:block;">Displayed under your name in the sidebar profile card.</span>
+          </div>
+
+          <div class="form-group" style="margin-bottom:6px;">
+            <label for="profEditAvatar" style="font-size:12px; font-weight:600; margin-bottom:6px; display:block;">Avatar Initials or Emoji</label>
+            <input type="text" id="profEditAvatar" class="form-input" value="EP" maxlength="4" placeholder="e.g. EP" style="max-width:140px;">
+            <span class="text-xs text-muted" style="margin-top:4px; display:block;">1-4 letters or an emoji for the sidebar avatar circle.</span>
+          </div>
+        </div>
+        <div class="modal-footer" style="padding:14px 20px; display:flex; justify-content:flex-end; gap:10px;">
+          <button class="btn btn-outline" id="btnCancelProfileModal" type="button">Cancel</button>
+          <button class="btn btn-primary" id="btnSaveProfileModal" type="button"><i data-lucide="check"></i> Save Changes</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: EDITABLE SYSTEM PROMPT ENGINE -->
+    <div class="modal-overlay hidden" id="systemPromptModal">
+      <div class="modal-card glass-card system-prompt-modal-card" style="max-width: 820px; width: 94vw;">
+        <div class="modal-header">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div class="modal-icon-badge" style="background:rgba(255, 170, 0, 0.15); color:var(--accent-amber); width:38px; height:38px; border-radius:10px; display:flex; align-items:center; justify-content:center;">
+              <i data-lucide="file-edit" style="width:20px; height:20px;"></i>
+            </div>
+            <div>
+              <h3 style="font-size:17px; margin:0; font-weight:700;">System Prompt Customization Engine</h3>
+              <p class="text-xs text-muted" style="margin:2px 0 0 0;">View, edit, and override prompts sent to local (Ollama) & cloud models</p>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <button class="btn btn-sm btn-outline" id="btnCopyPromptContent" title="Copy current prompt to clipboard" type="button">
+              <i data-lucide="copy"></i> <span>Copy</span>
+            </button>
+            <button class="btn-close-modal" id="btnClosePromptModal" title="Close (Esc)" type="button"><i data-lucide="x"></i></button>
+          </div>
+        </div>
+
+        <!-- Mode Sub-Tabs & Override Switch -->
+        <div class="prompt-modal-controls-bar">
+          <div class="prompt-tabs">
+            <button class="prompt-tab-btn active" data-tab="personal" type="button">
+              <i data-lucide="user-check"></i> Personal Mode Prompt
+            </button>
+            <button class="prompt-tab-btn" data-tab="professional" type="button">
+              <i data-lucide="briefcase"></i> Professional Mode Prompt
+            </button>
+            <button class="prompt-tab-btn" data-tab="extra" type="button">
+              <i data-lucide="shield"></i> Global Extra Directives
+            </button>
+          </div>
+
+          <div class="prompt-override-toggle-wrap">
+            <span style="font-size:12px; font-weight:600; color:var(--text-secondary);">Custom Override:</span>
+            <label class="switch" title="Enable custom prompt override">
+              <input type="checkbox" id="customPromptEnabledToggle">
+              <span class="slider round"></span>
+            </label>
+            <span class="badge" id="customPromptStatusBadge" style="font-size:10px;">Default Generator Active</span>
+          </div>
+        </div>
+
+        <!-- Dynamic Variables Insertion Toolbar -->
+        <div class="prompt-vars-toolbar" id="promptVarsToolbar">
+          <span class="vars-title"><i data-lucide="sparkles"></i> Insert Dynamic Tags:</span>
+          <div class="vars-chips-list" id="varsChipsContainer">
+            <!-- Populated per tab: {userName}, {contactName}, etc. -->
+          </div>
+        </div>
+
+        <!-- Prompt Textarea -->
+        <div class="prompt-editor-body">
+          <textarea id="promptEditorTextarea" class="prompt-editor-textarea" rows="15" spellcheck="false" placeholder="Enter system prompt instructions..."></textarea>
+          <div class="prompt-editor-footer-meta">
+            <span id="promptCharCount">0 characters</span>
+            <span class="text-xs text-muted" id="promptTabHint">Tip: Click variable chips above to insert dynamic values.</span>
+          </div>
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="modal-footer" style="padding:14px 20px; display:flex; justify-content:space-between; align-items:center;">
+          <div style="display:flex; gap:8px;">
+            <button class="btn btn-outline btn-sm" id="btnResetPromptTemplate" type="button" title="Restore default dynamic system prompt template">
+              <i data-lucide="rotate-ccw"></i> Reset to Default Template
+            </button>
+            <button class="btn btn-outline btn-sm" id="btnApplyMinimalPromptTemplate" type="button" title="Load ultra-fast minimal system prompt template">
+              <i data-lucide="zap"></i> Load Minimal Template
+            </button>
+          </div>
+          <div style="display:flex; gap:10px;">
+            <button class="btn btn-outline" id="btnCancelPromptModal" type="button">Cancel</button>
+            <button class="btn btn-primary" id="btnSaveSystemPrompt" type="button">
+              <i data-lucide="save"></i> Save System Prompt
+            </button>
+          </div>
         </div>
       </div>
     </div>
