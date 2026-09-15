@@ -164,6 +164,17 @@ router.post('/provider/models', async (req, res) => {
   }
 });
 
+// Pull / Download or register a local model (Ollama / Local Server)
+router.post('/models/pull-local', async (req, res) => {
+  try {
+    const { provider, modelName } = req.body;
+    const result = await llmService.pullLocalModel(provider, modelName);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // --- Debug Telemetry Endpoints ---
 router.get('/debug/latest', (req, res) => {
   try {
@@ -573,9 +584,9 @@ router.post('/rag/test-query', async (req, res) => {
 // --- 7. Live Chat Simulation Pipeline (STUDIO ONLY - NEVER SENDS TO EXTERNAL APIS) ---
 router.post('/chat/simulate', async (req, res) => {
   try {
-    const { contactId, text, senderName, dispatchToApi } = req.body;
-    if (!contactId || !text) {
-      return res.status(400).json({ success: false, message: 'contactId and text are required.' });
+    const { contactId, text, senderName, dispatchToApi, attachment } = req.body;
+    if (!contactId || (!text && !attachment)) {
+      return res.status(400).json({ success: false, message: 'contactId and text or attachment are required.' });
     }
 
     const contact = await getAsync(`SELECT * FROM contacts WHERE id = ?`, [contactId]);
@@ -584,10 +595,11 @@ router.post('/chat/simulate', async (req, res) => {
 
     const result = await decisionEngine.processIncomingMessage({
       contactId,
-      text,
+      text: text || (attachment ? `[Sent attachment: ${attachment.name}]` : ''),
       senderName,
       platform: contact?.platform || 'simulator',
-      dispatchToApi: shouldDispatch
+      dispatchToApi: shouldDispatch,
+      attachment: attachment || null
     });
 
     res.json({ success: true, simulatedOnly: !shouldDispatch, dispatched: Boolean(result?.dispatched), result });
@@ -599,9 +611,9 @@ router.post('/chat/simulate', async (req, res) => {
 // --- Normal Send: Direct Outgoing Response from Owner or AI (USES TELEGRAM/WHATSAPP APIS) ---
 router.post('/chat/send', async (req, res) => {
   try {
-    const { contactId, text, senderName, mode } = req.body;
-    if (!contactId || !text) {
-      return res.status(400).json({ success: false, message: 'contactId and text are required.' });
+    const { contactId, text, senderName, mode, attachment } = req.body;
+    if (!contactId || (!text && !attachment)) {
+      return res.status(400).json({ success: false, message: 'contactId and text or attachment are required.' });
     }
 
     const contact = await getAsync(`SELECT * FROM contacts WHERE id = ?`, [contactId]);
@@ -614,18 +626,24 @@ router.post('/chat/send', async (req, res) => {
     const effectiveMode = mode || contact.mode || 'personal';
     const messageId = `msg_owner_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const nowIso = new Date().toISOString();
-    const metadata = JSON.stringify({
+    const metaObj = {
       isManual: true,
       sender: 'owner',
       provider: 'Owner / Direct',
       model: 'manual-response'
-    });
+    };
+    if (attachment) {
+      metaObj.attachment = attachment;
+    }
+    const metadata = JSON.stringify(metaObj);
+
+    const effectiveText = text || (attachment ? `[Sent attachment: ${attachment.name}]` : '');
 
     // 1. Insert outgoing message in SQLite
     await runAsync(
       `INSERT INTO messages (id, contact_id, direction, sender_name, text, mode, metadata, status, timestamp)
        VALUES (?, ?, 'outgoing', ?, ?, ?, ?, 'delivered', ?)`,
-      [messageId, contactId, effectiveSender, text, effectiveMode, metadata, nowIso]
+      [messageId, contactId, effectiveSender, effectiveText, effectiveMode, metadata, nowIso]
     );
 
     // 2. Update contact last_active
@@ -637,7 +655,8 @@ router.post('/chat/send', async (req, res) => {
       contactName: contact.name,
       direction: 'outgoing',
       sender_name: effectiveSender,
-      text,
+      text: effectiveText,
+      attachment: attachment || null,
       mode: effectiveMode,
       provider: 'Owner / Direct',
       model: 'manual-response',

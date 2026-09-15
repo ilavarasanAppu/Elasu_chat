@@ -208,6 +208,31 @@ async function initDatabase() {
     if (!minPromptRow) {
       await runAsync(`INSERT INTO settings (key, value) VALUES ('minimal_system_prompt', 'false')`);
     }
+
+    // Ensure Local Model default settings are present
+    for (const [k, v] of [
+      ['local_endpoint', 'http://127.0.0.1:8000/v1'],
+      ['local_model', 'local-model'],
+      ['local_api_key', '']
+    ]) {
+      const row = await getAsync(`SELECT key FROM settings WHERE key = ?`, [k]);
+      if (!row) {
+        await runAsync(`INSERT INTO settings (key, value) VALUES (?, ?)`, [k, v]);
+      }
+    }
+
+    // Ensure Direct AI Assistant contact exists for Direct LLM & attachment testing
+    const directAiContact = await getAsync(`SELECT id FROM contacts WHERE id = 'contact_direct_ai'`);
+    if (!directAiContact) {
+      await runAsync(`
+        INSERT INTO contacts (id, name, handle, avatar, platform, mode, auto_reply, delay_mode, delay_seconds, relationship_type)
+        VALUES ('contact_direct_ai', '🤖 Direct AI Assistant', '@direct_ai', '🤖', 'simulator', 'direct', 1, 'immediate', 0, 'assistant')
+      `).catch(() => {});
+      await runAsync(`
+        INSERT OR IGNORE INTO personality_profiles (contact_id, formality_level, notes)
+        VALUES ('contact_direct_ai', 0.5, 'Direct LLM assistant mode with zero artificial delay and full attachment support')
+      `).catch(() => {});
+    }
   } catch (e) {
     // Migration error ignored
   }
@@ -231,6 +256,11 @@ async function seedDefaultSettings() {
     // LM Studio settings
     ['lmstudio_endpoint', 'http://127.0.0.1:1234/v1'],
     ['lmstudio_model', 'local-model'],
+
+    // Local Model settings (Custom Local Server: LocalAI, vLLM, llama.cpp, Jan, TextGen)
+    ['local_endpoint', 'http://127.0.0.1:8000/v1'],
+    ['local_model', 'local-model'],
+    ['local_api_key', ''],
     
     // OpenAI Compatible settings
     ['openai_endpoint', 'https://api.openai.com/v1'],

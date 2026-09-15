@@ -48,7 +48,7 @@ class DecisionEngine {
   /**
    * Main Real-time Processing Pipeline
    */
-  async processIncomingMessage({ contactId, text, platform = 'simulator', senderName, initialMode, chatId = null, accountId = null, dispatchToApi = true }) {
+  async processIncomingMessage({ contactId, text, platform = 'simulator', senderName, initialMode, chatId = null, accountId = null, dispatchToApi = true, attachment = null }) {
     const startTime = Date.now();
     const messageId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
@@ -104,10 +104,15 @@ class DecisionEngine {
     const contactDisplayName = senderName || contact.name;
 
     // 2. Save Incoming Message to Database
+    const incomingMetadata = {};
+    if (attachment) {
+      incomingMetadata.attachment = attachment;
+    }
+
     await runAsync(
       `INSERT INTO messages (id, contact_id, direction, sender_name, text, mode, metadata, status)
-       VALUES (?, ?, 'incoming', ?, ?, ?, '{}', 'delivered')`,
-      [messageId, contact.id, contactDisplayName, text, mode]
+       VALUES (?, ?, 'incoming', ?, ?, ?, ?, 'delivered')`,
+      [messageId, contact.id, contactDisplayName, text, mode, JSON.stringify(incomingMetadata)]
     );
 
     // Broadcast incoming message event
@@ -117,6 +122,7 @@ class DecisionEngine {
       contactName: contact.name,
       mode,
       text,
+      attachment,
       direction: 'incoming',
       timestamp: new Date().toISOString()
     });
@@ -185,7 +191,29 @@ class DecisionEngine {
 
     const isCustomPromptEnabled = settings.custom_system_prompt_enabled === 'true';
 
-    if (mode === 'professional') {
+    // Format effective user prompt: inject document contents if document attachment is present
+    let effectiveUserText = text;
+    if (attachment && attachment.type === 'document' && attachment.textContent) {
+      effectiveUserText = `[Attached Document: ${attachment.name || 'document'}]\n\`\`\`\n${attachment.textContent.substring(0, 16000)}\n\`\`\`\n\n${text}`;
+    }
+
+    if (mode === 'direct' || mode === 'direct-llm') {
+      // Direct LLM Mode (Direct raw AI assistant with zero delays and no persona distortions)
+      systemPrompt = "You are an intelligent, direct AI assistant. Provide concise, clear, and comprehensive answers. If files or images are attached, inspect and analyze them directly.";
+      if (settings.custom_system_prompt_extra && settings.custom_system_prompt_extra.trim()) {
+        systemPrompt += `\n\n═══════════════════════════════════════════════════════════════════\nGLOBAL USER DIRECTIVES & INSTRUCTIONS\n═══════════════════════════════════════════════════════════════════\n${settings.custom_system_prompt_extra.trim()}`;
+      }
+      temperature = 0.5;
+      max_tokens = 800;
+
+      this.broadcast('reasoning_trace', {
+        contactId: contact.id,
+        mode: 'direct',
+        systemPromptSnippet: systemPrompt.substring(0, 200) + '...',
+        hasAttachment: !!attachment,
+        isDirectMode: true
+      });
+    } else if (mode === 'professional') {
       // Professional Mode RAG Query
       retrievedDocs = await ragService.queryKnowledgeBase(text, 3);
       
@@ -201,7 +229,7 @@ class DecisionEngine {
         systemPrompt = this.formatCustomPrompt(settings.custom_system_prompt_professional, {
           knowledge_base: docsContext,
           chat_history: historyFormatted,
-          user_question: text,
+          user_question: effectiveUserText,
           userName: settings.user_name || 'Elavarasan P',
           contactName: contact.name
         });
@@ -209,13 +237,13 @@ class DecisionEngine {
         systemPrompt = ragService.buildMinimalProfessionalPrompt({
           retrievedDocs,
           chatHistory: recentHistory,
-          userQuestion: text
+          userQuestion: effectiveUserText
         });
       } else {
         systemPrompt = ragService.buildProfessionalPrompt({
           retrievedDocs,
           chatHistory: recentHistory,
-          userQuestion: text
+          userQuestion: effectiveUserText
         });
       }
       temperature = 0.3; // Low temperature for high factual accuracy
@@ -253,7 +281,7 @@ class DecisionEngine {
           formality: profile.formality_level || '0.2',
           humor: profile.humor_type || 'playful banter',
           chat_history: historyFormatted,
-          user_question: text
+          user_question: effectiveUserText
         });
       } else if (settings.minimal_system_prompt === 'true') {
         systemPrompt = personalityService.buildMinimalPersonalPrompt({
@@ -306,11 +334,12 @@ class DecisionEngine {
     const isQuickMode = (settings.response_speed_mode || 'quick') === 'quick';
     const llmResult = await llmService.generateResponse({
       system: systemPrompt,
-      user: text,
+      user: effectiveUserText,
       history: recentHistory,
       temperature,
       max_tokens,
       mode,
+      attachment,
       extraContext: {
         retrievedDocs,
         relationshipType: contact.relationship_type,
@@ -324,13 +353,18 @@ class DecisionEngine {
     // 7. Post-Processing & Texting Quirks
     if (mode === 'personal') {
       finalReply = personalityService.applyTextingQuirks(rawReply, profile);
-    } else {
+    } else if (mode === 'professional') {
       finalReply = personalityService.cleanHumanReply(rawReply, profile);
+    } else {
+      // Direct LLM mode: pure raw model output without persona alterations
+      finalReply = rawReply;
     }
 
-    // 8. Natural Human Delay Simulation (Bypassed / Minimized in Quick Answer Mode)
+    // 8. Natural Human Delay Simulation (Bypassed / Zero in Direct LLM Mode)
     let delayMs = 1200;
-    if (isQuickMode) {
+    if (mode === 'direct' || mode === 'direct-llm') {
+      delayMs = 0; // Instant in Direct LLM mode
+    } else if (isQuickMode) {
       delayMs = 200; // Instant response in quick mode
     } else if (contact.delay_mode === 'immediate') {
       delayMs = 600;
@@ -342,12 +376,14 @@ class DecisionEngine {
     }
 
     // Respect natural delay multiplier from settings
-    if (!isQuickMode) {
+    if (!isQuickMode && mode !== 'direct' && mode !== 'direct-llm') {
       const multiplier = parseFloat(settings.natural_delay_multiplier || '1.0');
       delayMs = Math.max(300, Math.min(10000, Math.round(delayMs * multiplier)));
     }
 
-    await new Promise(resolve => setTimeout(resolve, delayMs));
+    if (delayMs > 0) {
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
 
     // 9. Save Outgoing Message
     const replyMessageId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;

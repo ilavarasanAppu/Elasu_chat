@@ -44,7 +44,7 @@ class LLMService {
   /**
    * Helper to invoke any specific AI provider by name
    */
-  async invokeProvider(providerName, { system, user, history = [], temperature = 0.7, max_tokens = 300, mode = 'personal', extraContext = {}, settings = {}, modelOverride = null }) {
+  async invokeProvider(providerName, { system, user, history = [], temperature = 0.7, max_tokens = 300, mode = 'personal', extraContext = {}, settings = {}, modelOverride = null, attachment = null }) {
     const activeSettings = { ...settings };
     const p = (providerName || '').toLowerCase();
     if (modelOverride) {
@@ -53,19 +53,22 @@ class LLMService {
 
     switch (p) {
       case 'ollama':
-        return await this.callOllama({ system, user, history, temperature, max_tokens, settings: activeSettings, extraContext });
+        return await this.callOllama({ system, user, history, temperature, max_tokens, settings: activeSettings, extraContext, attachment });
       case 'lmstudio':
-        return await this.callLMStudio({ system, user, history, temperature, max_tokens, settings: activeSettings });
+        return await this.callLMStudio({ system, user, history, temperature, max_tokens, settings: activeSettings, attachment });
+      case 'local':
+      case 'localmodel':
+        return await this.callLocalModel({ system, user, history, temperature, max_tokens, settings: activeSettings, attachment, extraContext });
       case 'openai':
-        return await this.callOpenAI({ system, user, history, temperature, max_tokens, settings: activeSettings });
+        return await this.callOpenAI({ system, user, history, temperature, max_tokens, settings: activeSettings, attachment });
       case 'gemini':
-        return await this.callGemini({ system, user, history, temperature, max_tokens, settings: activeSettings });
+        return await this.callGemini({ system, user, history, temperature, max_tokens, settings: activeSettings, attachment });
       case 'openrouter':
-        return await this.callOpenRouter({ system, user, history, temperature, max_tokens, settings: activeSettings });
+        return await this.callOpenRouter({ system, user, history, temperature, max_tokens, settings: activeSettings, attachment });
       case 'nvidia':
-        return await this.callNvidia({ system, user, history, temperature, max_tokens, settings: activeSettings });
+        return await this.callNvidia({ system, user, history, temperature, max_tokens, settings: activeSettings, attachment });
       case 'mock':
-        return await this.callSmartMock({ system, user, history, mode, extraContext, settings: activeSettings });
+        return await this.callSmartMock({ system, user, history, mode, extraContext, settings: activeSettings, attachment });
       default:
         throw new Error(`Unsupported AI provider: "${providerName}"`);
     }
@@ -121,6 +124,14 @@ class LLMService {
       });
     }
 
+    // Custom Local Model
+    if (primary !== 'local' && settings.local_endpoint && settings.local_endpoint.trim()) {
+      candidates.push({
+        provider: 'local',
+        model: settings.local_model || 'local-model'
+      });
+    }
+
     // Local Ollama (if primary is cloud)
     if (primary !== 'ollama' && settings.ollama_endpoint && settings.ollama_endpoint.trim()) {
       candidates.push({
@@ -167,7 +178,7 @@ class LLMService {
    * Unified Dispatcher for LLM Providers with 2-AI-Model Fallback Pipeline
    * Route: Attempts AI Model 1 -> If failed, attempts AI Model 2 -> If both fail, routes to Fallback Machine Learning Reply.
    */
-  async generateResponse({ system, user, history = [], temperature = 0.7, max_tokens = 300, mode = 'personal', extraContext = {} }) {
+  async generateResponse({ system, user, history = [], temperature = 0.7, max_tokens = 300, mode = 'personal', extraContext = {}, attachment = null }) {
     const settings = await this.getSettings();
     const primaryProvider = (settings.active_provider || 'mock').toLowerCase();
     const overallStart = Date.now();
@@ -176,7 +187,7 @@ class LLMService {
     // If user explicitly configured mock / smart fallback as primary
     if (primaryProvider === 'mock') {
       const t0 = Date.now();
-      const res = await this.callSmartMock({ system, user, history, mode, extraContext, settings });
+      const res = await this.callSmartMock({ system, user, history, mode, extraContext, settings, attachment });
       const latency = Date.now() - t0;
       const debug = {
         timestamp: new Date().toISOString(),
@@ -216,7 +227,7 @@ class LLMService {
       console.log(`[LLMService] Attempting AI Model 1: ${primaryProvider} (${primaryModel}), min timeout 20s...`);
       const t1 = Date.now();
       const res1 = await this.invokeProvider(primaryProvider, {
-        system, user, history, temperature, max_tokens, mode, extraContext, settings
+        system, user, history, temperature, max_tokens, mode, extraContext, settings, attachment
       });
       const latency1 = Date.now() - t1;
       stage1Telemetry = res1.debug || null;
@@ -282,7 +293,7 @@ class LLMService {
         console.log(`[LLMService] Routing to AI Model 2: ${secondaryProvider} (${secondaryModel}), min timeout 20s...`);
         const t2 = Date.now();
         const res2 = await this.invokeProvider(secondaryProvider, {
-          system, user, history, temperature, max_tokens, mode, extraContext, settings, modelOverride: secondaryModel
+          system, user, history, temperature, max_tokens, mode, extraContext, settings, modelOverride: secondaryModel, attachment
         });
         const latency2 = Date.now() - t2;
         stage2Telemetry = res2.debug || null;
@@ -402,7 +413,7 @@ class LLMService {
   }
 
   // 1. Ollama Integration (Supports OpenAI compatible endpoint and native /api/chat with full telemetry)
-  async callOllama({ system, user, history, temperature, max_tokens, settings, extraContext = {} }) {
+  async callOllama({ system, user, history, temperature, max_tokens, settings, extraContext = {}, attachment = null }) {
     const startTime = Date.now();
     let endpoint = (settings.ollama_endpoint || 'http://127.0.0.1:11434').trim().replace(/\/$/, '');
     let model = settings.ollama_model || 'llama3.2:latest';
@@ -410,7 +421,14 @@ class LLMService {
     // Construct messages array
     const messages = [{ role: 'system', content: system }];
     history.forEach(h => messages.push({ role: h.role || (h.direction === 'incoming' ? 'user' : 'assistant'), content: h.text || h.content }));
-    messages.push({ role: 'user', content: user });
+    const userMsg = { role: 'user', content: user };
+    if (attachment && attachment.type === 'image') {
+      const b64 = (attachment.base64 || (attachment.dataUrl ? attachment.dataUrl.split(',')[1] : '')).trim();
+      if (b64) {
+        userMsg.images = [b64];
+      }
+    }
+    messages.push(userMsg);
 
     // AI Model Think Mode (Reasoning)
     const isThinkMode = settings.model_think_mode === 'true';
@@ -648,30 +666,72 @@ class LLMService {
     }
   }
 
+  /**
+   * Helper to format user content for OpenAI-compatible multimodal endpoints
+   */
+  formatOpenAIUserContent(user, attachment) {
+    if (!attachment || attachment.type !== 'image') {
+      return user;
+    }
+    const imageUrl = attachment.dataUrl || (attachment.base64 ? `data:${attachment.mimeType || 'image/jpeg'};base64,${attachment.base64}` : null);
+    if (!imageUrl) return user;
+    return [
+      { type: 'text', text: user || 'Please analyze this image.' },
+      { type: 'image_url', image_url: { url: imageUrl } }
+    ];
+  }
+
   // 2. LM Studio Integration (OpenAI Compatible)
-  async callLMStudio({ system, user, history, temperature, max_tokens, settings }) {
+  async callLMStudio({ system, user, history = [], temperature, max_tokens, settings, attachment = null }) {
     let endpoint = (settings.lmstudio_endpoint || 'http://127.0.0.1:1234/v1').trim().replace(/\/$/, '');
     const model = settings.lmstudio_model || 'local-model';
 
     const messages = [{ role: 'system', content: system }];
     history.forEach(h => messages.push({ role: h.role || (h.direction === 'incoming' ? 'user' : 'assistant'), content: h.text || h.content }));
-    messages.push({ role: 'user', content: user });
+    messages.push({ role: 'user', content: this.formatOpenAIUserContent(user, attachment) });
 
     const targetUrl = endpoint.endsWith('/chat/completions') ? endpoint : `${endpoint}/chat/completions`;
 
     const res = await axios.post(targetUrl, {
       model,
       messages,
-      temperature,
-      max_tokens
+      temperature: typeof temperature === 'number' ? temperature : 0.7,
+      max_tokens: max_tokens || 300
     }, { timeout: 60000 });
 
     const reply = res.data?.choices?.[0]?.message?.content || '';
     return { text: reply.trim(), provider: 'LM Studio', model };
   }
 
+  // 2b. Local Model Integration (Custom Local Server: LocalAI, vLLM, llama.cpp, Jan, TextGen)
+  async callLocalModel({ system, user, history = [], temperature, max_tokens, settings, attachment = null }) {
+    let endpoint = (settings.local_endpoint || 'http://127.0.0.1:8000/v1').trim().replace(/\/$/, '');
+    const apiKey = (settings.local_api_key || '').trim();
+    const model = settings.local_model || 'local-model';
+
+    const messages = [{ role: 'system', content: system }];
+    history.forEach(h => messages.push({ role: h.role || (h.direction === 'incoming' ? 'user' : 'assistant'), content: h.text || h.content }));
+    messages.push({ role: 'user', content: this.formatOpenAIUserContent(user, attachment) });
+
+    const targetUrl = endpoint.endsWith('/chat/completions') ? endpoint : `${endpoint}/chat/completions`;
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+
+    const res = await axios.post(targetUrl, {
+      model,
+      messages,
+      temperature: typeof temperature === 'number' ? temperature : 0.7,
+      max_tokens: max_tokens || 300
+    }, { headers, timeout: 60000 });
+
+    const reply = res.data?.choices?.[0]?.message?.content || '';
+    return { text: reply.trim(), provider: 'Local Model', model };
+  }
+
   // 3. OpenAI & Compatible Providers (Groq, DeepSeek, Together, vLLM, etc.)
-  async callOpenAI({ system, user, history, temperature, max_tokens, settings }) {
+  async callOpenAI({ system, user, history = [], temperature, max_tokens, settings, attachment = null }) {
     let endpoint = (settings.openai_endpoint || 'https://api.openai.com/v1').trim().replace(/\/$/, '');
     const apiKey = settings.openai_api_key;
     const model = settings.openai_model || 'gpt-4o-mini';
@@ -682,7 +742,7 @@ class LLMService {
 
     const messages = [{ role: 'system', content: system }];
     history.forEach(h => messages.push({ role: h.role || (h.direction === 'incoming' ? 'user' : 'assistant'), content: h.text || h.content }));
-    messages.push({ role: 'user', content: user });
+    messages.push({ role: 'user', content: this.formatOpenAIUserContent(user, attachment) });
 
     const targetUrl = endpoint.endsWith('/chat/completions') ? endpoint : `${endpoint}/chat/completions`;
 
@@ -704,7 +764,7 @@ class LLMService {
   }
 
   // 4. Google Gemini API
-  async callGemini({ system, user, history = [], temperature, max_tokens, settings }) {
+  async callGemini({ system, user, history = [], temperature, max_tokens, settings, attachment = null }) {
     const apiKey = (settings.gemini_api_key || '').trim();
     let rawModel = (settings.gemini_model || 'gemini-3.8-flash').trim();
     let model = rawModel.replace(/^models\//, '') || 'gemini-3.8-flash';
@@ -754,21 +814,36 @@ class LLMService {
       }
     }
 
-    // Add current user prompt
+    // Add current user prompt and optional image attachment
     const userPrompt = (user || '').trim();
-    if (!userPrompt) {
+    if (!userPrompt && !attachment) {
       throw new Error('User prompt cannot be empty');
     }
 
+    const userParts = [{ text: userPrompt || 'Please inspect and analyze this attached image.' }];
+    if (attachment && attachment.type === 'image') {
+      const b64 = (attachment.base64 || (attachment.dataUrl ? attachment.dataUrl.split(',')[1] : '')).trim();
+      if (b64) {
+        userParts.push({
+          inlineData: {
+            mimeType: attachment.mimeType || 'image/jpeg',
+            data: b64
+          }
+        });
+      }
+    }
+
     if (sanitizedContents.length === 0) {
-      sanitizedContents.push({ role: 'user', parts: [{ text: userPrompt }] });
+      sanitizedContents.push({ role: 'user', parts: userParts });
     } else {
       const lastTurn = sanitizedContents[sanitizedContents.length - 1];
       if (lastTurn.role === 'user') {
-        // Merge into last user turn if previous turn was also user
         lastTurn.parts[0].text += `\n${userPrompt}`;
+        if (userParts.length > 1) {
+          lastTurn.parts.push(...userParts.slice(1));
+        }
       } else {
-        sanitizedContents.push({ role: 'user', parts: [{ text: userPrompt }] });
+        sanitizedContents.push({ role: 'user', parts: userParts });
       }
     }
 
@@ -818,36 +893,25 @@ class LLMService {
       const statusCode = err.response?.status;
 
       // Auto-recovery: If selected model is retired (404), quota-blocked, or experiencing temporary high demand (503)
-      const isRetriableError = apiMsg && (
-        apiMsg.includes('no longer available') ||
-        apiMsg.includes('Quota exceeded') ||
-        apiMsg.includes('limit: 0') ||
-        apiMsg.includes('high demand') ||
-        statusCode === 503 ||
-        statusCode === 404
-      );
-
-      if (isRetriableError) {
-        const fallbackTarget = (model === 'gemini-2.5-flash') ? 'gemini-3.8-flash' : 'gemini-2.5-flash';
-        console.warn(`[Gemini] Model "${model}" hit (${apiMsg}). Auto-switching to ${fallbackTarget}...`);
+      if ((statusCode === 404 || statusCode === 429 || statusCode === 503) && model !== 'gemini-2.5-flash') {
+        console.warn(`[Gemini] Encountered HTTP ${statusCode} with model "${model}". Auto-falling back to "gemini-2.5-flash"...`);
         try {
-          const fallbackUrl = `https://generativelanguage.googleapis.com/v1beta/models/${fallbackTarget}:generateContent?key=${encodeURIComponent(apiKey)}`;
+          const fallbackUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
           const fbRes = await axios.post(fallbackUrl, payload, {
             headers: { 'Content-Type': 'application/json' },
             timeout: 60000
           });
-          const fbCandidate = fbRes.data?.candidates?.[0];
-          const fbReply = fbCandidate?.content?.parts?.map(p => p.text).filter(Boolean).join('\n') || '';
+          const fbReply = fbRes.data?.candidates?.[0]?.content?.parts?.map(p => p.text).filter(Boolean).join('\n') || '';
           if (fbReply) {
-            runAsync(`UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = 'gemini_model'`, [fallbackTarget]).catch(() => {});
             return {
               text: fbReply.trim(),
               provider: 'Google Gemini',
-              model: `${fallbackTarget} (auto-recovered from ${model})`
+              model: 'gemini-2.5-flash (Auto-recovery)',
+              recoveredFrom: model
             };
           }
-        } catch (retryErr) {
-          console.warn(`[Gemini] Fallback to ${fallbackTarget} failed:`, retryErr.message);
+        } catch (recoveryErr) {
+          console.error('[Gemini] Recovery with gemini-2.5-flash also failed:', recoveryErr.message);
         }
       }
 
@@ -859,7 +923,7 @@ class LLMService {
   }
 
   // 5. OpenRouter Integration
-  async callOpenRouter({ system, user, history, temperature, max_tokens, settings }) {
+  async callOpenRouter({ system, user, history = [], temperature, max_tokens, settings, attachment = null }) {
     const apiKey = settings.openrouter_api_key;
     const model = settings.openrouter_model || 'meta-llama/llama-3.3-70b-instruct';
 
@@ -869,7 +933,7 @@ class LLMService {
 
     const messages = [{ role: 'system', content: system }];
     history.forEach(h => messages.push({ role: h.role || (h.direction === 'incoming' ? 'user' : 'assistant'), content: h.text || h.content }));
-    messages.push({ role: 'user', content: user });
+    messages.push({ role: 'user', content: this.formatOpenAIUserContent(user, attachment) });
 
     const res = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
       model,
@@ -891,7 +955,7 @@ class LLMService {
   }
 
   // 6. NVIDIA API (NVIDIA NIM endpoints)
-  async callNvidia({ system, user, history, temperature, max_tokens, settings }) {
+  async callNvidia({ system, user, history = [], temperature, max_tokens, settings, attachment = null }) {
     let endpoint = (settings.nvidia_endpoint || 'https://integrate.api.nvidia.com/v1').trim().replace(/\/$/, '');
     const apiKey = settings.nvidia_api_key;
     const model = settings.nvidia_model || 'meta/llama-3.1-70b-instruct';
@@ -902,7 +966,7 @@ class LLMService {
 
     const messages = [{ role: 'system', content: system }];
     history.forEach(h => messages.push({ role: h.role || (h.direction === 'incoming' ? 'user' : 'assistant'), content: h.text || h.content }));
-    messages.push({ role: 'user', content: user });
+    messages.push({ role: 'user', content: this.formatOpenAIUserContent(user, attachment) });
 
     const targetUrl = endpoint.endsWith('/chat/completions') ? endpoint : `${endpoint}/chat/completions`;
 
@@ -924,9 +988,25 @@ class LLMService {
   }
 
   // 7. Context-Aware Smart Fallback Generator (Instant simulation & testing)
-  async callSmartMock({ system, user, history, mode, extraContext = {}, settings = {} }) {
+  async callSmartMock({ system, user, history, mode, extraContext = {}, settings = {}, attachment = null }) {
     const lowerUser = (user || '').toLowerCase();
     const preferredLanguage = settings.preferred_language || 'tanglish';
+
+    if (attachment) {
+      return {
+        text: `[Smart Assistant] Successfully inspected your attached ${attachment.type || 'file'} "${attachment.name || 'document'}" (${attachment.size ? Math.round(attachment.size / 1024) + ' KB' : 'loaded'}). Regarding "${user || 'Analysis'}": All parameters and multimodal data processed with high confidence!`,
+        provider: "Smart Fallback Engine",
+        model: "smart-multimodal-engine"
+      };
+    }
+
+    if (mode === 'direct') {
+      return {
+        text: `[Direct AI Assistant] Direct LLM mode active. Regarding "${user}": I am here to help you directly without simulated delays or persona constraints. How can I assist you further?`,
+        provider: "Smart Fallback Engine",
+        model: "direct-ai-engine"
+      };
+    }
 
     if (mode === 'professional') {
       // Professional Mode intelligent generator
@@ -1151,6 +1231,14 @@ class LLMService {
           const models = (res.data?.data || []).map(m => m.id);
           return { success: true, message: `Connected to LM Studio! Found ${models.length} active models.`, models };
         }
+        case 'local': {
+          let ep = (active.local_endpoint || 'http://127.0.0.1:8000/v1').trim().replace(/\/$/, '');
+          const apiKey = (active.local_api_key || '').trim();
+          const headers = apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {};
+          const res = await axios.get(`${ep}/models`, { headers, timeout: 6000 });
+          const models = (res.data?.data || []).map(m => m.id || m.name);
+          return { success: true, message: `Connected to Local Model Server! Found ${models.length} active models.`, models };
+        }
         case 'openai': {
           let ep = (active.openai_endpoint || 'https://api.openai.com/v1').trim().replace(/\/$/, '');
           const apiKey = active.openai_api_key;
@@ -1255,6 +1343,28 @@ class LLMService {
             owned_by: m.owned_by || null
           }));
           return { success: true, models, message: `Found ${models.length} models` };
+        }
+        case 'local': {
+          let ep = (active.local_endpoint || 'http://127.0.0.1:8000/v1').trim().replace(/\/$/, '');
+          const apiKey = (active.local_api_key || '').trim();
+          const headers = apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {};
+          try {
+            const res = await axios.get(`${ep}/models`, { headers, timeout: 8000 });
+            const models = (res.data?.data || []).map(m => ({
+              id: m.id || m.name || 'local-model',
+              name: m.id || m.name || 'local-model',
+              owned_by: m.owned_by || 'local'
+            }));
+            return { success: true, models, message: `Found ${models.length} models on local server` };
+          } catch (fetchErr) {
+            return {
+              success: true,
+              models: [
+                { id: active.local_model || 'local-model', name: active.local_model || 'local-model', owned_by: 'local' }
+              ],
+              message: `Showing configured local model (Could not query ${ep}/models: ${fetchErr.message})`
+            };
+          }
         }
         case 'openai': {
           let ep = (active.openai_endpoint || 'https://api.openai.com/v1').trim().replace(/\/$/, '');
@@ -1420,6 +1530,10 @@ class LLMService {
         case 'lmstudio':
           res = await this.callLMStudio({ system: 'You are an AI ping tester.', user: 'Hello, reply with "OK".', history: [], temperature: 0.1, max_tokens: 15, settings: active });
           break;
+        case 'local':
+        case 'localmodel':
+          res = await this.callLocalModel({ system: 'You are an AI ping tester.', user: 'Hello, reply with "OK".', history: [], temperature: 0.1, max_tokens: 15, settings: active });
+          break;
         case 'openai':
           res = await this.callOpenAI({ system: 'You are an AI ping tester.', user: 'Hello, reply with "OK".', history: [], temperature: 0.1, max_tokens: 15, settings: active });
           break;
@@ -1512,6 +1626,29 @@ class LLMService {
         message: `AI Model test failed for ${activeProvider} (${model}): ${detailedError}`,
         debug: failDebug
       };
+    }
+  }
+
+  /**
+   * Pull / Download or register a local model
+   */
+  async pullLocalModel(provider = 'ollama', modelName) {
+    if (!modelName || !modelName.trim()) {
+      throw new Error('Model name cannot be empty');
+    }
+    const cleanModel = modelName.trim();
+    const settings = await this.getSettings();
+    const p = (provider || 'ollama').toLowerCase();
+
+    if (p === 'ollama') {
+      let ep = (settings.ollama_endpoint || 'http://127.0.0.1:11434').trim().replace(/\/$/, '').replace(/\/v1$/, '');
+      const res = await axios.post(`${ep}/api/pull`, { name: cleanModel, stream: false }, { timeout: 300000 });
+      await runAsync(`UPDATE settings SET value = ? WHERE key = 'ollama_model'`, [cleanModel]);
+      return { success: true, model: cleanModel, message: `Successfully pulled "${cleanModel}" into Ollama!`, data: res.data };
+    } else {
+      const key = p === 'lmstudio' ? 'lmstudio_model' : 'local_model';
+      await runAsync(`UPDATE settings SET value = ? WHERE key = ?`, [cleanModel, key]);
+      return { success: true, model: cleanModel, message: `Registered "${cleanModel}" as active model for ${provider}.` };
     }
   }
 }

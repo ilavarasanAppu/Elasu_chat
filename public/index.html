@@ -41,6 +41,7 @@
             <select id="headerProviderSelect" class="header-dropdown header-provider-dropdown">
               <option value="ollama">Ollama (Local)</option>
               <option value="lmstudio">LM Studio (Local)</option>
+              <option value="local">Local Model (Custom Server)</option>
               <option value="openai">OpenAI Compatible</option>
               <option value="gemini">Google Gemini</option>
               <option value="openrouter">OpenRouter</option>
@@ -239,6 +240,9 @@
                     <button class="trend-mode-btn" id="btnSetProfessional" data-mode="professional" type="button">
                       <i data-lucide="briefcase"></i> <span>Professional</span>
                     </button>
+                    <button class="trend-mode-btn" id="btnSetDirect" data-mode="direct" type="button" title="Direct LLM: Direct AI conversation with attachment support and zero delay">
+                      <i data-lucide="cpu"></i> <span>Direct LLM</span>
+                    </button>
                   </div>
 
                   <!-- Quick AI Auto-Reply Status Chip -->
@@ -374,8 +378,26 @@
                 <span class="voice-status-label" id="voiceStatusLabel">Listening to your voice (Tanglish / English)... Click mic again to send</span>
               </div>
 
+              <!-- Direct LLM Attachment Preview Bar -->
+              <div class="chat-attachment-preview-bar hidden" id="chatAttachmentPreviewBar">
+                <div class="attachment-preview-card" id="attachmentPreviewCard">
+                  <div class="attachment-thumb" id="attachmentThumb"></div>
+                  <div class="attachment-info">
+                    <span class="attachment-name" id="attachmentName">attachment.png</span>
+                    <span class="attachment-meta" id="attachmentMeta">0 KB</span>
+                  </div>
+                  <button class="attachment-remove-btn" id="btnRemoveAttachment" title="Remove attachment" type="button">
+                    <i data-lucide="x"></i>
+                  </button>
+                </div>
+              </div>
+
               <!-- Modern Trending Input Composer with Normal Send & Simulate Send -->
               <div class="chat-input-bar trend-input-bar">
+                <button class="btn-input-attach" id="btnChatAttach" title="Attach file or image directly to LLM (Images, PDF, TXT, JSON, Code)" type="button">
+                  <i data-lucide="paperclip"></i>
+                </button>
+                <input type="file" id="chatFileInput" style="display:none;" accept="image/*,.txt,.md,.pdf,.json,.csv,.js,.py,.html,.css,.xml,.log">
                 <button class="btn-input-mic" id="btnVoiceRecord" title="Speak to Text (Voice ASR) - Click to talk" type="button">
                   <i data-lucide="mic"></i>
                 </button>
@@ -634,6 +656,74 @@
                 </div>
                 <div class="provider-status-msg" id="status_lmstudio"></div>
                 <button class="btn btn-sm btn-select-provider" data-select="lmstudio">Set as Active Provider</button>
+              </div>
+            </div>
+
+            <!-- 2b. Local Model (Custom Server: LocalAI, vLLM, llama.cpp, Jan) -->
+            <div class="provider-card glass-card" data-provider="local">
+              <div class="provider-card-header">
+                <div class="provider-icon-title">
+                  <div class="provider-logo-icon local-icon">🖥️</div>
+                  <div>
+                    <h4>Local Model (Custom Server)</h4>
+                    <span class="provider-desc">LocalAI, vLLM, llama.cpp, Jan, TextGen WebUI</span>
+                  </div>
+                </div>
+                <button class="btn btn-sm btn-outline btn-test-provider" data-target="local">
+                  <i data-lucide="refresh-cw"></i> Test Ping
+                </button>
+              </div>
+
+              <div class="provider-form">
+                <div class="form-group">
+                  <label>Endpoint URL</label>
+                  <input type="text" id="cfg_local_endpoint" value="http://127.0.0.1:8000/v1" placeholder="http://127.0.0.1:8000/v1">
+                </div>
+                <div class="form-group">
+                  <label>API Key / Auth Token (Optional)</label>
+                  <input type="password" id="cfg_local_api_key" placeholder="Optional bearer token or API key...">
+                </div>
+                <div class="form-group">
+                  <label>Model</label>
+                  <div class="model-selector-row">
+                    <button class="btn btn-sm btn-outline btn-load-models" data-provider="local" type="button">
+                      <i data-lucide="download-cloud"></i> Load Models
+                    </button>
+                    <select id="cfg_local_model" class="model-dropdown">
+                      <option value="local-model">local-model</option>
+                    </select>
+                  </div>
+                  <input type="text" id="cfg_local_model_custom" class="model-custom-input" placeholder="Or type custom model name...">
+                </div>
+                <div class="provider-status-msg" id="status_local"></div>
+                <button class="btn btn-sm btn-select-provider" data-select="local">Set as Active Provider</button>
+              </div>
+            </div>
+
+            <!-- Add / Pull Local Model Manager -->
+            <div class="provider-card glass-card" style="border-color: rgba(56, 189, 248, 0.35); background: linear-gradient(135deg, rgba(56, 189, 248, 0.04), rgba(0, 0, 0, 0.2));">
+              <div class="provider-card-header">
+                <div class="provider-icon-title">
+                  <div class="provider-logo-icon" style="background:rgba(56, 189, 248, 0.15); color:var(--accent-cyan); font-size:18px;">⬇️</div>
+                  <div>
+                    <h4>Add / Pull Local Model</h4>
+                    <span class="provider-desc">Download models into Ollama or register local weights</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="provider-form">
+                <p class="text-muted text-sm">Download new local models directly into Ollama (e.g. <code>llama3.2:1b</code>, <code>qwen2.5:3b</code>, <code>deepseek-r1:8b</code>, <code>llava</code> for vision attachments).</p>
+                <div class="form-group">
+                  <label>Model Tag / Name to Download</label>
+                  <div style="display:flex; gap:8px;">
+                    <input type="text" id="inputPullModelName" placeholder="e.g. llama3.2, qwen2.5:3b, deepseek-r1:8b, llava" style="flex:1;">
+                    <button class="btn btn-sm btn-primary" id="btnPullLocalModel" type="button" style="white-space:nowrap;">
+                      <i data-lucide="download"></i> <span>Pull Model</span>
+                    </button>
+                  </div>
+                </div>
+                <div class="provider-status-msg" id="status_pull_model"></div>
               </div>
             </div>
 
